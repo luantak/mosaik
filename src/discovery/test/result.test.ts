@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { parseTerminalDiscovery } from "../result.js";
 
 test("terminal discovery requires unverified goal-reached automation", () => {

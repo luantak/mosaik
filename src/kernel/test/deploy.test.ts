@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { collectKernelSiteLibrary, deployKernelProject } from "../deploy.js";
 
 test("Kernel deployment packages the caller's canonical site library", async () => {

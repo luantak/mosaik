@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import test from "node:test";
+import { test } from "vitest";
 import { defineAction, string } from "../../capabilities/index.js";
 import { extractText, role } from "../../core/index.js";
 import { openRedisLibraryBackend } from "../redis-library.js";

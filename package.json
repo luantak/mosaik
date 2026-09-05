@@ -45,7 +45,7 @@
     "kernel:assets": "node scripts/build-kernel-assets.mjs --check",
     "kernel:assets:check": "node scripts/build-kernel-assets.mjs --check",
     "auth:fixture": "tsx src/auth/multistep-fixture-cli.ts",
-    "test": "node scripts/with-kernel-assets.mjs tsx --test",
+    "test": "node scripts/with-kernel-assets.mjs vitest run",
     "prepack": "pnpm run build"
   },
   "dependencies": {
@@ -69,7 +69,8 @@
     "@types/react": "19.2.18",
     "esbuild": "0.28.2",
     "oxlint": "1.80.0",
-    "tsx": "4.23.12"
+    "tsx": "4.23.12",
+    "vitest": "^5.0.0"
   },
   "engines": {
     "node": ">=22.18.0"

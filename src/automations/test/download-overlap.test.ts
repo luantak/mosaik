@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { executeComposedAutomation } from "../sandbox.js";
 
 test("bounded downloads overlap sequential actions, retain failures and finish before return", async () => {

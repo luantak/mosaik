@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { defineAction, string, type SiteActionDefinition } from "../../capabilities/index.js";
 import { extractText, role } from "../../core/index.js";
 import type { ComposedAutomation } from "../../automations/types.js";

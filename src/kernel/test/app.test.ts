@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import Kernel, { appRegistry } from "@onkernel/sdk";
 import { resolveKernelLibraryUrl, runKernelMosaik } from "../app.js";
 import { registerKernelMosaikApp } from "../index.js";

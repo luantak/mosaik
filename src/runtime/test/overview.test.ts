@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { resolveLocator } from "../locators.js";
 import { collectOverview, toPageSnapshot } from "../overview.js";
 import { startFixtureServer, withBrowser } from "../index.js";

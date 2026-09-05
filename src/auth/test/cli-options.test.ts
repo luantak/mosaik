@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { parseLoginCliArgs } from "../cli-options.js";
 
 test("login CLI accepts a positional local URL and derives a private session path", () => {

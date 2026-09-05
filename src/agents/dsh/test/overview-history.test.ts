@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { OverviewHistory } from "../overview-history.js";
 
 test("overview deltas omit repeated content and preserve changed and removed fields", () => {

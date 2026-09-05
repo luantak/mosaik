@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { mayValidateStepLive, repairPolicyFor } from "../policy.js";
 
 test("repair policy follows the safety field, not the step type", () => {

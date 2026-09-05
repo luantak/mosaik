@@ -3,7 +3,7 @@ import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import {
   array,
   composeTask,

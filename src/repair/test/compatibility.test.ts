@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import type { Step } from "../../core/index.js";
 import {
   assessExactNameIdentity,

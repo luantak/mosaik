@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { EvidenceStore } from "../evidence.js";
 
 test("large repeated evidence has one preview and lossless bounded retrieval", () => {

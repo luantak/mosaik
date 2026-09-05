@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { extractList, extractText, inputRef, navigate, role } from "../../core/index.js";
 import { createActionDiscoverySession, defaultActionId } from "../action-discovery.js";
 import { createMemoryRegistry } from "../lookup.js";

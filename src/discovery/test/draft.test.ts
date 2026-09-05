@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { form, inputRef, label, literalValue, role } from "../../core/index.js";
 import { addDraftStep, emptyDraft, removeDraftStep, updateDraftStep } from "../draft.js";
 import { DEFAULT_DISCOVERY_CONSTRAINTS } from "../types.js";

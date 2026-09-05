@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { PassThrough, Writable } from "node:stream";
-import test from "node:test";
+import { test } from "vitest";
 import { createTerminalCredentialPrompter, maskedInput } from "../terminal.js";
 import type { AuthChallenge } from "../types.js";
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { typecheckAutomation } from "../typecheck.js";
 import { createCompositionSession } from "../../capabilities/code-mode.js";
 import { createMemoryRegistry } from "../../capabilities/lookup.js";

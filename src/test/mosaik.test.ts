@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import test from "node:test";
+import { test } from "vitest";
 import { chromium } from "playwright";
 import { createMosaik, MosaikExecutionError } from "../mosaik.js";
 import { defineAutomation } from "../library/automations-api.js";

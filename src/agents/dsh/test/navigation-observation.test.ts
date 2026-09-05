@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { createNavigationObserver, recoveryNavigationUrls } from "../navigation-observation.js";
 import { startFixtureServer, withBrowser } from "../../../runtime/index.js";
 

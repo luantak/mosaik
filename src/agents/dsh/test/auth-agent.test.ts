@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import type { AuthSuccessAgentRequest } from "../../../auth/index.js";
 import { parseAuthSuccessAgentDecision } from "../auth-agent.js";
 

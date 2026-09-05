@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { chromium } from "playwright";
 import { defineAction, createMemoryRegistry } from "../../capabilities/index.js";
 import type { RepairAgent } from "../../agents/types.js";

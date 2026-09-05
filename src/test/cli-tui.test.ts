@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { stripVTControlCharacters } from "node:util";
 import { renderToString } from "ink";
 import { createElement } from "react";

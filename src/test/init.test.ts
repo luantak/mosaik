@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { parseInitCliArgs } from "../cli-options.js";
 import { defaultPackageName, initializeMosaikProject, normalizePackageName } from "../init.js";
 

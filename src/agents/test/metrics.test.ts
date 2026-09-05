@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { billedInputTokens, parseDshUsage, usageFromSessionEvent } from "../metrics.js";
 
 test("DSH usage includes cached prompt tokens", () => {

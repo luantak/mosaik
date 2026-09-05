@@ -197,6 +197,13 @@ container isolation. See [code execution trust](docs/reference.md#code-execution
 
 ## Contributing
 
+Contributions are welcome. Try Mosaik on a site you care about and tell us where
+it breaks, open an issue with an idea, or send a PR. Bug fixes and clearer docs
+help a lot. You don't need to know the whole codebase to get involved.
+
+Join us on [Discord](https://discord.gg/QmspQUZ3Ec) to ask questions, share what
+you're building, or talk through a contribution.
+
 If you're working on Mosaik itself, `pnpm run check` checks types,
 `pnpm run fmt` formats the code, and `pnpm run lint` runs the linter.
 Deterministic tests use fake agents or local tools and don't need model keys.

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { withBrowser } from "../browser.js";
 import { locatorAlternatives } from "../locator-alternatives.js";
 import { resolveLocator } from "../locators.js";

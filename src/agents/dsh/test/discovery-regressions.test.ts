@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canCompleteFromDiscovery } from "../discovery-completion.js";
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { runActionDiscoveryCode } from "../action-discovery-tools.js";
 import { createActionDiscoverySession } from "../../../capabilities/action-discovery.js";
 import { createMemoryRegistry } from "../../../capabilities/lookup.js";

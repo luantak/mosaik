@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { mock } from "node:test";
+import { test, vi } from "vitest";
 import { ElementReferences } from "../element-references.js";
 import { collectOverview, toPageSnapshot } from "../../../runtime/overview.js";
 import { startFixtureServer, withBrowser } from "../../../runtime/index.js";
@@ -14,24 +14,24 @@ test("unchanged DOM reuses references without rescanning, but replacement and re
       try {
         await page.goto(fixture.url);
         const snapshot = toPageSnapshot(await collectOverview(page));
-        const scan = mock.method(page, "getByRole");
+        const scan = vi.spyOn(page, "getByRole");
         const first = await references.capture(page, snapshot);
-        assert.ok(scan.mock.callCount() > 0);
-        scan.mock.resetCalls();
+        assert.ok(scan.mock.calls.length > 0);
+        scan.mockClear();
         const cached = await references.capture(page, snapshot);
         assert.deepEqual(cached, first);
-        assert.equal(scan.mock.callCount(), 0);
+        assert.equal(scan.mock.calls.length, 0);
         cached.elements.length = 0;
         assert.deepEqual(await references.capture(page, snapshot), first);
         await page.locator("button").evaluate((node) => node.replaceWith(node.cloneNode(true)));
         const replaced = await references.capture(page, snapshot);
-        assert.ok(scan.mock.callCount() > 0);
+        assert.ok(scan.mock.calls.length > 0);
         assert.notEqual(replaced.elements[0]!.elementRef, first.elements[0]!.elementRef);
         await assert.rejects(references.resolve(page, first.elements[0]!.elementRef), /Stale/);
         await page.reload();
         const reloaded = await references.capture(page, snapshot);
         assert.notEqual(reloaded.elements[0]!.elementRef, replaced.elements[0]!.elementRef);
-        scan.mock.restore();
+        scan.mockRestore();
       } finally {
         await references.close();
         await page.close();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { css, extractText } from "../../core/index.js";
 import { startFixtureServer, withBrowser } from "../../runtime/index.js";
 import { createDiscoveryTools } from "../tools.js";

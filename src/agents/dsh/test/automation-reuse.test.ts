@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { openFileRepository } from "../../../persist/repository.js";
 import { createMemoryRegistry, defineAction } from "../../../capabilities/index.js";
 import {

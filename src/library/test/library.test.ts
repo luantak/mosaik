@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { defineAction, string, array, object } from "../../capabilities/index.js";
 import { click, extractList, label, role, urlField } from "../actions-api.js";
 import { emitActionSource, parseActionSource } from "../action-source.js";

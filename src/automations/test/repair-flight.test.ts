@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { formatRepairFlightKey, RepairFlightCoordinator } from "../repair-flight.js";
 
 test("single-flight repair gives one owner and shares the outcome", async () => {

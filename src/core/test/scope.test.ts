@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { bindLocatorScope } from "../scope.js";
 
 test("unscoped originals do not gain an invented container", () => {

@@ -3,7 +3,7 @@ import { executeStep } from "../execute.js";
 import { runActionDiscoveryCode } from "../../agents/dsh/action-discovery-tools.js";
 import { createActionDiscoverySession, createMemoryRegistry } from "../../capabilities/index.js";
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   openBrowserSession,
   openAgentBrowser,

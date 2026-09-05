@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { authAutomationFilePath, openFileRepository } from "../../persist/index.js";
 import { openBrowserSession, startFixtureServer } from "../../runtime/index.js";
 import { createProfileCredentialPrompter } from "../credentials.js";
