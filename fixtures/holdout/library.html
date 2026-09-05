@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Municipal Library</title>
+  </head>
+  <body>
+    <h1>Municipal Library</h1>
+    <form aria-label="Catalog search">
+      <label for="q">Query</label>
+      <input id="q" name="q" />
+      <button type="button" id="search">Search catalog</button>
+    </form>
+    <ul id="results"></ul>
+    <script>
+      const books = {
+        dune: { href: "/books/dune", title: "Dune", author: "Frank Herbert" },
+        emma: { href: "/books/emma", title: "Emma", author: "Jane Austen" },
+      };
+      document.getElementById("search").addEventListener("click", () => {
+        const q = document.getElementById("q").value.trim().toLowerCase();
+        const hit = books[q];
+        const results = document.getElementById("results");
+        results.innerHTML = hit
+          ? '<li><a href="' + hit.href + '">' + hit.title + "</a></li>"
+          : "<li>No matches</li>";
+      });
+    </script>
+  </body>
+</html>

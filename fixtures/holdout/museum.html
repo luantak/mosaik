@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Print room</title>
+  </head>
+  <body>
+    <h1>Print room</h1>
+    <label for="era">Era</label>
+    <select id="era">
+      <option value="">Any</option>
+      <option value="edo">Edo</option>
+      <option value="meiji">Meiji</option>
+    </select>
+    <ul>
+      <li data-era="meiji" hidden>Locomotive poster</li>
+      <li data-era="edo" hidden>The Great Wave</li>
+    </ul>
+    <script>
+      document.getElementById("era").addEventListener("change", () => {
+        const era = document.getElementById("era").value;
+        document.querySelectorAll("li[data-era]").forEach((item) => {
+          item.hidden = item.getAttribute("data-era") !== era;
+        });
+      });
+    </script>
+  </body>
+</html>

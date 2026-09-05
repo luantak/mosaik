@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop checkout</title>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="#home">Home</a>
+        <a href="#shop">Shop</a>
+        <a href="#account">Account</a>
+        <button type="button">Menu</button>
+        <button type="button">Search</button>
+      </nav>
+    </header>
+    <main>
+      <form aria-label="Newsletter" name="newsletter">
+        <label for="newsletter-email">Email</label>
+        <input id="newsletter-email" name="newsletter" />
+        <button type="button">Subscribe</button>
+      </form>
+      <form aria-label="Checkout" name="checkout">
+        <label for="email">Email</label>
+        <input id="email" name="email" />
+        <label for="country">Country</label>
+        <select id="country" name="country">
+          <option value="">Select</option>
+          <option value="DE">Germany</option>
+        </select>
+        <button type="button" id="continue-btn">Proceed</button>
+        <button type="button">Save for later</button>
+        <button type="button" disabled>Apply coupon</button>
+      </form>
+      <form aria-label="Support" name="support">
+        <label for="ticket">Ticket</label>
+        <input id="ticket" name="ticket" />
+        <button type="button">Contact</button>
+      </form>
+    </main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="#privacy">Privacy</a>
+        <a href="#terms">Terms</a>
+        <a href="#help">Help</a>
+        <button type="button">Back to top</button>
+      </nav>
+      <button type="button" hidden>Hidden debug</button>
+      <button type="button" style="display: none">Inactive</button>
+    </footer>
+  </body>
+</html>

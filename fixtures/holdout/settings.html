@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Workspace settings</title>
+  </head>
+  <body>
+    <h1>Workspace settings</h1>
+    <div role="tablist">
+      <button type="button" role="tab" aria-selected="true" data-tab="general">General</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="privacy">Privacy</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="billing">Billing</button>
+    </div>
+    <section id="general" role="tabpanel">
+      <p>Workspace name: Northwind</p>
+    </section>
+    <section id="privacy" role="tabpanel" hidden>
+      <p>Log retention: <span data-testid="retention">90 days</span></p>
+    </section>
+    <section id="billing" role="tabpanel" hidden>
+      <p>Plan: Hobby</p>
+    </section>
+    <script>
+      document.querySelectorAll("[role=tab]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const selected = tab.getAttribute("data-tab");
+          document.querySelectorAll("[role=tab]").forEach((item) => {
+            item.setAttribute("aria-selected", item === tab ? "true" : "false");
+          });
+          document.querySelectorAll("[role=tabpanel]").forEach((panel) => {
+            panel.hidden = panel.id !== selected;
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

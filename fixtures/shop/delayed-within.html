@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop checkout</title>
+  </head>
+  <body>
+    <main>
+      <form id="checkout">
+        <label for="email">Email</label>
+        <input id="email" name="email" />
+        <label for="country">Country</label>
+        <select id="country" name="country">
+          <option value="">Select</option>
+          <option value="DE">Germany</option>
+        </select>
+      </form>
+    </main>
+    <script>
+      setTimeout(() => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.id = "continue-btn";
+        button.textContent = "Continue";
+        document.getElementById("checkout").appendChild(button);
+      }, 400);
+    </script>
+  </body>
+</html>

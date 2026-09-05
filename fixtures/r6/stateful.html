@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stateful status</title>
+    <style>
+      #run {
+        width: 48px;
+        height: 48px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Metric</h1>
+    <div id="run" tabindex="0"></div>
+    <div id="stat"></div>
+    <script>
+      document.getElementById("run").addEventListener("click", () => {
+        document.getElementById("stat").textContent = "41";
+      });
+    </script>
+  </body>
+</html>

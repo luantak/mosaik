@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Quotes to Scrape</title>
+  </head>
+  <body>
+    <h1>Quotes to Scrape</h1>
+    <form aria-label="Search quotes">
+      <label for="author">Author</label>
+      <select id="author" name="author">
+        <option value="">----------</option>
+        <option value="Albert Einstein">Albert Einstein</option>
+        <option value="Jane Austen">Jane Austen</option>
+      </select>
+      <label for="tag">Tag</label>
+      <select id="tag" name="tag">
+        <option value="">----------</option>
+        <option value="inspirational">inspirational</option>
+        <option value="humor">humor</option>
+      </select>
+      <button type="button" name="submit_button" id="search">Search</button>
+    </form>
+    <div id="results" hidden>
+      <p data-testid="quote">
+        The person, be it gentleman or lady, who has not pleasure in a good novel, must be
+        intolerably stupid.
+      </p>
+    </div>
+    <script>
+      document.getElementById("search").addEventListener("click", () => {
+        const author = document.getElementById("author").value;
+        const tag = document.getElementById("tag").value;
+        if (author !== "Jane Austen" || tag !== "humor") return;
+        document.getElementById("results").hidden = false;
+      });
+    </script>
+  </body>
+</html>

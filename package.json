@@ -1,0 +1,78 @@
+{
+  "name": "mosaik",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Browser automation built from small, reusable pieces.",
+  "license": "MIT",
+  "bin": {
+    "mosaik": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./actions": {
+      "types": "./dist/library/actions-api.d.ts",
+      "import": "./dist/library/actions-api.js"
+    },
+    "./automations": {
+      "types": "./dist/library/automations-api.d.ts",
+      "import": "./dist/library/automations-api.js"
+    },
+    "./kernel": {
+      "types": "./dist/kernel/index.d.ts",
+      "import": "./dist/kernel/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && node scripts/with-kernel-assets.mjs tsc -p tsconfig.build.json && cp src/agents/dsh/auth-profile.cordis.yml dist/agents/dsh/auth-profile.cordis.yml",
+    "check": "node scripts/with-kernel-assets.mjs tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint --fix",
+    "lint:check": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "kernel:assets": "node scripts/build-kernel-assets.mjs --check",
+    "kernel:assets:check": "node scripts/build-kernel-assets.mjs --check",
+    "auth:fixture": "tsx src/auth/multistep-fixture-cli.ts",
+    "test": "node scripts/with-kernel-assets.mjs tsx --test",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-code-runtime-worker-thread": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
+    "@onkernel/sdk": "0.97.0",
+    "acorn": "^8.18.0",
+    "ink": "7.1.1",
+    "oxfmt": "0.65.0",
+    "playwright": "1.62.1",
+    "react": "19.2.8",
+    "redis": "6.2.1",
+    "typescript": "7.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "@types/react": "19.2.18",
+    "esbuild": "0.28.2",
+    "oxlint": "1.80.0",
+    "tsx": "4.23.12"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "packageManager": "pnpm@11.7.0"
+}

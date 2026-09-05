@@ -1,0 +1,24 @@
+packages:
+  - "."
+
+overrides:
+  use-sync-external-store: 1.6.0
+
+allowBuilds:
+  "@deepseek-ai/dsh-subprocess-local": true
+  "@google/genai": true
+  esbuild: true
+  koffi: true
+  node-pty: true
+  protobufjs: true
+
+onlyBuiltDependencies:
+  - "@deepseek-ai/dsh-subprocess-local"
+  - "@google/genai"
+  - "esbuild"
+  - "koffi"
+  - "node-pty"
+  - "protobufjs"
+
+minimumReleaseAgeExclude:
+  - "@onkernel/sdk@0.97.0"

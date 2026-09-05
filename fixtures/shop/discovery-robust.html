@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop checkout</title>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="#home">Home</a>
+        <a href="/account">Account</a>
+        <button type="button">Menu</button>
+        <button type="button">Search</button>
+      </nav>
+    </header>
+    <main>
+      <form name="Newsletter" aria-label="Newsletter">
+        <h2>Newsletter</h2>
+        <label for="newsletter-email">Email</label>
+        <input id="newsletter-email" name="newsletter-email" />
+        <button type="button" id="subscribe-btn">Subscribe</button>
+      </form>
+      <form name="Checkout" aria-label="Checkout">
+        <h2>Checkout</h2>
+        <label for="email">Email</label>
+        <input id="email" name="email" />
+        <label for="country">Country</label>
+        <select id="country" name="country">
+          <option value="">Select</option>
+          <option value="DE">Germany</option>
+        </select>
+        <button type="button" id="continue-btn">Continue</button>
+        <button type="button">Save for later</button>
+        <button type="button" disabled>Apply coupon</button>
+      </form>
+      <form name="Support" aria-label="Support">
+        <label for="ticket">Ticket</label>
+        <input id="ticket" name="ticket" />
+        <button type="button">Contact</button>
+      </form>
+    </main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="#privacy">Privacy</a>
+        <a href="#help">Help</a>
+        <button type="button">Back to top</button>
+      </nav>
+    </footer>
+    <script>
+      document.getElementById("continue-btn").addEventListener("click", () => {
+        const email = document.getElementById("email").value.trim();
+        const country = document.getElementById("country").value;
+        if (!email || !country) return;
+        history.pushState({}, "", "/done");
+        document.body.innerHTML = "<main><h1>Order received</h1></main>";
+      });
+      document.getElementById("subscribe-btn").addEventListener("click", () => {
+        const email = document.getElementById("newsletter-email").value.trim();
+        if (!email) return;
+        document.getElementById("subscribe-btn").textContent = "Subscribed";
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ops widget</title>
+  </head>
+  <body>
+    <div class="shell">
+      <div id="run" class="go"></div>
+      <div class="metric" id="stat"></div>
+    </div>
+    <script>
+      document.getElementById("run").addEventListener("click", () => {
+        document.getElementById("stat").textContent = "41";
+      });
+    </script>
+  </body>
+</html>

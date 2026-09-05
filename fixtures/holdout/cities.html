@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>City lookup</title>
+  </head>
+  <body>
+    <h1>City lookup</h1>
+    <label for="city">City</label>
+    <input id="city" autocomplete="off" />
+    <ul id="suggestions" hidden></ul>
+    <p id="chosen" hidden></p>
+    <script>
+      const cities = ["Portland", "Portsmouth", "Portofino"];
+      const input = document.getElementById("city");
+      const list = document.getElementById("suggestions");
+      input.addEventListener("input", () => {
+        const q = input.value.trim().toLowerCase();
+        const hits = cities.filter((city) => city.toLowerCase().startsWith(q));
+        list.hidden = hits.length === 0 || q.length < 2;
+        list.innerHTML = hits
+          .map(
+            (city) =>
+              '<li><button type="button" data-city="' + city + '">' + city + "</button></li>",
+          )
+          .join("");
+      });
+      list.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-city]");
+        if (!button) return;
+        const city = button.getAttribute("data-city");
+        input.value = city;
+        list.hidden = true;
+        const chosen = document.getElementById("chosen");
+        chosen.hidden = false;
+        chosen.textContent = "Selected " + city;
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Staff directory</title>
+  </head>
+  <body>
+    <h1>Staff directory</h1>
+    <div role="group" aria-label="Department">
+      <button type="button" data-dept="all">All</button>
+      <button type="button" data-dept="engineering">Engineering</button>
+      <button type="button" data-dept="design">Design</button>
+    </div>
+    <table>
+      <tbody>
+        <tr data-dept="design">
+          <td><a href="/staff/mina">Mina Park</a></td>
+        </tr>
+        <tr data-dept="engineering">
+          <td><a href="/staff/ada">Ada Lovelace</a></td>
+        </tr>
+        <tr data-dept="engineering">
+          <td><a href="/staff/grace">Grace Hopper</a></td>
+        </tr>
+      </tbody>
+    </table>
+    <script>
+      document.querySelectorAll("button[data-dept]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const dept = button.getAttribute("data-dept");
+          document.querySelectorAll("tr[data-dept]").forEach((row) => {
+            row.hidden = dept !== "all" && row.getAttribute("data-dept") !== dept;
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

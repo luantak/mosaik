@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Empty id control</title>
+    <style>
+      #run {
+        width: 48px;
+        height: 48px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Ops</h1>
+    <div id="run" tabindex="0"></div>
+    <p id="done" hidden>ready</p>
+    <script>
+      document.getElementById("run").addEventListener("click", () => {
+        document.getElementById("done").hidden = false;
+      });
+    </script>
+  </body>
+</html>

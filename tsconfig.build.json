@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/auth/multistep-fixture-cli.ts",
+    "src/fixtures/**",
+    "src/sites/**"
+  ]
+}

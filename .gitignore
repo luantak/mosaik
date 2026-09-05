@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.dsh-poc-runs/
+.mosaik-runs/
+.mosaik-bench/
+.mosaik/
+playwright-report/
+test-results/
+.env
+.pnpm-store/
+.DS_Store
+*.tgz
+mosaik.code-workspace
+src/kernel/generated-dsh-plugins.ts
+plans/

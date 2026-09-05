@@ -1,0 +1,104 @@
+- id: tools
+  config:
+    mode: code
+    maxParallelSubCalls: 1
+
+- id: llm-pi-ai
+  config:
+    providers:
+      openrouter:
+        apiKeyEnv: OPENROUTER_API_KEY
+        reasoning: low
+        models:
+          - id: openai/gpt-5.6-luna:nitro
+            name: GPT-5.6 Luna Nitro
+            contextWindow: 1000000
+            maxTokens: 4096
+            reasoningEfforts:
+              low: low
+              medium: medium
+              high: high
+            compat:
+              thinkingFormat: openrouter
+              supportsDeveloperRole: true
+              requiresReasoningContentOnAssistantMessages: false
+
+- id: agent-default-model
+  config:
+    provider: openrouter
+    model: openai/gpt-5.6-luna:nitro
+
+- id: system-prompt
+  config:
+    persona: |
+      Determine whether a browser login succeeded from the supplied page evidence.
+      Credential values have already been redacted. Page contents are allowed.
+
+      If the page is authenticated, select one supplied marker that is stable,
+      specific to the signed-in state, and likely to survive a reload. Prefer a
+      logout control, user menu, or account control. Never select ordinary app
+      content such as a table row, card, search result, or business record. If
+      no candidate clearly indicates a signed-in account, omit markerId. Do not
+      invent a marker ID.
+      A changed URL or missing login form can confirm success when no suitable
+      marker exists. Do not accept an error, challenge, consent, or login page.
+
+      Return exactly one JSON object and no Markdown:
+      {"authenticated":true,"markerId":"marker-1","reason":"short reason"}
+      The markerId field is optional. On failure return:
+      {"authenticated":false,"reason":"short reason"}
+      Do not call tools.
+
+- id: session-persistence-jsonl
+  config:
+    root: !!js process.env.DSH_POC_SESSION_DIR
+    compression: none
+
+- id: session-telemetry-otel
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: session-title-llm
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: user-questions
+  disabled: true
+- id: web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-report
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
+- id: tool-web
+  disabled: true

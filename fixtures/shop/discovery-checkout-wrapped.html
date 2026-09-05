@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop checkout</title>
+  </head>
+  <body>
+    <main>
+      <form name="Checkout" aria-label="Checkout">
+        <h2>Checkout</h2>
+        <div class="fields">
+          <label for="email">Email</label>
+          <input id="email" name="email" />
+          <label for="country">Country</label>
+          <select id="country" name="country">
+            <option value="">Select</option>
+            <option value="DE">Germany</option>
+          </select>
+        </div>
+        <footer class="actions">
+          <div class="primary">
+            <button type="button" id="continue-btn">Continue</button>
+          </div>
+        </footer>
+      </form>
+    </main>
+    <script>
+      document.getElementById("continue-btn").addEventListener("click", () => {
+        const email = document.getElementById("email").value.trim();
+        const country = document.getElementById("country").value;
+        if (!email || !country) return;
+        history.pushState({}, "", "/done");
+        document.body.innerHTML = "<main><h1>Order received</h1></main>";
+      });
+    </script>
+  </body>
+</html>
