@@ -32,6 +32,11 @@ Some tasks we want this to be good at:
 
 ## Try it
 
+The default model is `openai/gpt-5.6-luna:nitro` through OpenRouter, used for
+composition, action discovery, and outcome review. Use `mosaik run --model <model>`
+to choose another model. Login checks default to the same model and can be
+overridden separately with `MOSAIK_AUTH_MODEL`.
+
 You'll need Node 22.18 or newer, pnpm, and an OpenRouter API key. From a checkout
 of this repo:
 
