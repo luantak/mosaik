@@ -2,9 +2,9 @@
 
 Browser automation built from small, reusable pieces.
 
-An agent can figure out a workflow. Once it works, we want to run it reliably
-across thousands of pages and repeat it next week. Mosaik turns that workflow
-into code so the repeated work follows the same steps each time.
+Reading thousands of records or checking a complete user journey takes consistent
+execution. We want to run the same steps across every page and repeat them next
+week. Mosaik saves those steps as code so the workflow stays the same between runs.
 
 Mosaik uses an agent to figure out how a site works, saves reusable actions as
 TypeScript, and composes them into automations. Playwright executes the browser
@@ -33,9 +33,10 @@ Some tasks we want this to be good at:
 ## Try it
 
 The default model is `openai/gpt-5.6-luna:nitro` through OpenRouter, used for
-composition, action discovery, and outcome review. Use `mosaik run --model <model>`
-to choose another model. Login checks default to the same model and can be
-overridden separately with `MOSAIK_AUTH_MODEL`.
+composition, action discovery, and outcome review. This is the model we've
+tested with. You can choose another with `mosaik run --model <model>`, but expect
+some breakage when switching models. Login checks default to the same model and
+can be overridden separately with `MOSAIK_AUTH_MODEL`.
 
 You'll need Node 22.18 or newer, pnpm, and an OpenRouter API key. From a checkout
 of this repo:
@@ -190,6 +191,8 @@ Generated code runs in a DSH worker with validation and resource limits, but
 that worker is not a security boundary against hostile code. Use it for trusted
 automations. A deployment accepting adversarial tasks needs stronger process or
 container isolation. See [code execution trust](docs/reference.md#code-execution-trust).
+
+## Contributing
 
 If you're working on Mosaik itself, `pnpm run check` checks types,
 `pnpm run fmt` formats the code, and `pnpm run lint` runs the linter.
