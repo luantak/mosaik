@@ -195,7 +195,11 @@ test("overlapping implementations fail before clicking and unconfirmed clicks ar
       createPlaywrightHost(page, [action]).invoke("saveEditor", {}),
       /ambiguous-state/,
     );
-    const result = await executeStep(page, { ...step, completion: implementation.completion }, 50);
+    const result = await executeStep(
+      page,
+      { ...step, completion: implementation.completion, conditionTimeoutMs: 50 },
+      5_000,
+    );
     assert.equal(result.ok ? "" : result.type, "uncertain-outcome");
   } finally {
     await browser.close();
