@@ -38,10 +38,13 @@ tested with. You can choose another with `mosaik run --model <model>`, but expec
 some breakage when switching models. Login checks default to the same model and
 can be overridden separately with `MOSAIK_AUTH_MODEL`.
 
-You'll need Node 22.18 or newer, pnpm, and an OpenRouter API key. From a checkout
-of this repo:
+You'll need Node 22.18 or newer, pnpm, and an OpenRouter API key.
+
+Clone this repo and install the CLI:
 
 ```sh
+git clone https://github.com/luantak/mosaik.git
+cd mosaik
 pnpm install
 pnpm run build
 pnpm add --global .
