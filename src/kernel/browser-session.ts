@@ -6,6 +6,7 @@ export interface KernelBrowserSessionOptions {
   client?: Kernel;
   invocationId?: string;
   headless?: boolean;
+  humanize?: boolean;
   stealth?: boolean;
   timeoutSeconds?: number;
   profileName?: string;
@@ -62,10 +63,15 @@ export async function openKernelBrowserSession(
   // without a profile stay isolated in a new context for each task.
   const session =
     options.profileName === undefined
-      ? ephemeralSession(browser, { cdpEndpoint: created.cdp_ws_url, close })
+      ? ephemeralSession(browser, {
+          cdpEndpoint: created.cdp_ws_url,
+          close,
+          ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
+        })
       : await sharedContextSession(browser, {
           cdpEndpoint: created.cdp_ws_url,
           close,
+          ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
         });
 
   return {

@@ -8,7 +8,9 @@ import {
   loadMosaikConfig,
   loadInteractiveCliHistory,
   rememberInteractiveHistory,
+  resolveHumanization,
   saveDefaultBrowser,
+  saveHumanizationDefault,
   saveKernelAuthConnection,
   saveInteractiveCliHistory,
   saveOpenRouterKey,
@@ -114,6 +116,26 @@ test("project config saves defaults and longest matching Kernel domains atomical
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("project config persists the opt-in humanization default", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mosaik-config-"));
+  const dataDirectory = join(directory, ".mosaik");
+  try {
+    await saveHumanizationDefault(dataDirectory, true);
+    assert.equal((await loadMosaikConfig(dataDirectory)).humanize, true);
+    await saveHumanizationDefault(dataDirectory, false);
+    assert.equal((await loadMosaikConfig(dataDirectory)).humanize, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("explicit humanization flags override the project default", () => {
+  assert.equal(resolveHumanization(undefined, { version: 1 }), false);
+  assert.equal(resolveHumanization(undefined, { version: 1, humanize: true }), true);
+  assert.equal(resolveHumanization(false, { version: 1, humanize: true }), false);
+  assert.equal(resolveHumanization(true, { version: 1, humanize: false }), true);
 });
 
 test("malformed project config names its file", async () => {

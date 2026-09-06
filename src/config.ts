@@ -20,6 +20,7 @@ export interface KernelAuthConnection {
 export interface MosaikConfig {
   version: 1;
   browser?: "local" | "kernel";
+  humanize?: boolean;
   kernel?: {
     connections: Record<string, KernelAuthConnection>;
   };
@@ -60,11 +61,23 @@ export async function saveDefaultBrowser(
   return saveMosaikConfig(dataDirectory, { ...config, browser });
 }
 
+export async function saveHumanizationDefault(
+  dataDirectory: string,
+  humanize: boolean,
+): Promise<string> {
+  const config = await loadMosaikConfig(dataDirectory);
+  return saveMosaikConfig(dataDirectory, { ...config, humanize });
+}
+
 export function resolveMosaikBrowser(
   explicit: "local" | "kernel" | undefined,
   config: MosaikConfig,
 ): "local" | "kernel" {
   return explicit ?? config.browser ?? "local";
+}
+
+export function resolveHumanization(explicit: boolean | undefined, config: MosaikConfig): boolean {
+  return explicit ?? config.humanize ?? false;
 }
 
 export function findKernelAuthConnection(
@@ -126,8 +139,15 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   if (record.browser !== undefined && record.browser !== "local" && record.browser !== "kernel") {
     throw new Error("browser must be local or kernel");
   }
+  if (record.humanize !== undefined && typeof record.humanize !== "boolean") {
+    throw new Error("humanize must be a boolean");
+  }
   if (record.kernel === undefined) {
-    return { version: 1, ...(record.browser === undefined ? {} : { browser: record.browser }) };
+    return {
+      version: 1,
+      ...(record.browser === undefined ? {} : { browser: record.browser }),
+      ...(record.humanize === undefined ? {} : { humanize: record.humanize }),
+    };
   }
   if (record.kernel === null || typeof record.kernel !== "object" || Array.isArray(record.kernel)) {
     throw new Error("kernel must be an object");
@@ -150,6 +170,7 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   return {
     version: 1,
     ...(record.browser === undefined ? {} : { browser: record.browser }),
+    ...(record.humanize === undefined ? {} : { humanize: record.humanize }),
     kernel: { connections },
   };
 }

@@ -20,9 +20,14 @@ import {
 } from "../core/index.js";
 import { withIsolatedContext } from "../runtime/browser.js";
 import { BrowserResponseCache } from "../runtime/assets.js";
+import { configurePageHumanization, isPageHumanized } from "../runtime/humanize.js";
 import { isBrowserSession, type BrowserSession } from "../runtime/session.js";
 import { bindAutomationDependencies, resolveAutomationActions } from "./dependencies.js";
 import { mayValidateStepLive } from "../repair/policy.js";
+import {
+  DEFAULT_STEP_TIMEOUT_MS,
+  HUMANIZED_STEP_TIMEOUT_ALLOWANCE_MS,
+} from "../runtime/execute.js";
 import { patchCompatibleWithStep } from "../core/repair-result.js";
 import { resolveLocator } from "../runtime/locators.js";
 import { createPlaywrightHost } from "./host.js";
@@ -58,6 +63,7 @@ export async function runAutomation(
     outputDirectory?: string;
     onFileWrite?: (file: AutomationOutputFile) => void;
     libraryRoot?: string;
+    humanize?: boolean;
     loadAutomationSource?: (automationId: string) => Promise<string | undefined>;
   },
 ): Promise<AutomationExecutionResult> {
@@ -113,11 +119,13 @@ async function executeComposedAutomationOnce(
     outputDirectory?: string;
     onFileWrite?: (file: AutomationOutputFile) => void;
     libraryRoot?: string;
+    humanize?: boolean;
     loadAutomationSource?: (automationId: string) => Promise<string | undefined>;
   },
 ): Promise<AutomationExecutionResult> {
   const runId = randomUUID();
   const executeOnPage = async (page: import("playwright").Page) => {
+    if (options.humanize !== undefined) await configurePageHumanization(page, options.humanize);
     const sessionResponses = isBrowserSession(browser)
       ? browser.readCapturedResponse?.bind(browser)
       : undefined;
@@ -140,9 +148,14 @@ async function executeComposedAutomationOnce(
         await page.goto(options.startUrl, { waitUntil: "domcontentloaded" });
         throwIfAborted(options.signal);
       }
-      const stepTimeoutMs =
+      const configuredStepTimeoutMs =
         options.stepTimeoutMs ??
         (isBrowserSession(browser) ? browser.defaultStepTimeoutMs : undefined);
+      const stepTimeoutMs =
+        options.stepTimeoutMs === undefined && isPageHumanized(page)
+          ? (configuredStepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS) +
+            HUMANIZED_STEP_TIMEOUT_ALLOWANCE_MS
+          : configuredStepTimeoutMs;
       const metrics = emptyCoordination();
       const coverage: CaseCheck[] = [];
       let recovery: AutomationExecutionResult["recovery"];

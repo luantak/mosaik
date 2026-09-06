@@ -28,6 +28,7 @@ export interface KernelMosaikPayload {
   automationId?: string;
   model?: string;
   headless?: boolean;
+  humanize?: boolean;
   stealth?: boolean;
   authConnectionId?: string;
   profileName?: string;
@@ -91,6 +92,7 @@ export async function runKernelMosaik(
       client: kernel,
       invocationId: context.invocation_id,
       headless: payload.headless ?? true,
+      ...(payload.humanize === undefined ? {} : { humanize: payload.humanize }),
       stealth: payload.stealth ?? false,
       timeoutSeconds: 300,
       ...(profileName === undefined ? {} : { saveProfileChanges: true }),
@@ -171,7 +173,7 @@ function parsePayload(value: unknown): KernelMosaikPayload {
   if (payload.authConnectionId !== undefined && payload.profileName !== undefined) {
     throw new Error("Pass either authConnectionId or profileName, not both");
   }
-  for (const key of ["headless", "stealth"] as const) {
+  for (const key of ["headless", "humanize", "stealth"] as const) {
     if (payload[key] !== undefined && typeof payload[key] !== "boolean") {
       throw new Error(`${key} must be a boolean`);
     }
@@ -184,6 +186,7 @@ function parsePayload(value: unknown): KernelMosaikPayload {
     ...(payload.automationId === undefined ? {} : { automationId: payload.automationId as string }),
     ...(payload.model === undefined ? {} : { model: payload.model as string }),
     ...(payload.headless === undefined ? {} : { headless: payload.headless as boolean }),
+    ...(payload.humanize === undefined ? {} : { humanize: payload.humanize as boolean }),
     ...(payload.stealth === undefined ? {} : { stealth: payload.stealth as boolean }),
     ...(payload.authConnectionId === undefined
       ? {}

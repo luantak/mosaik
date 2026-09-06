@@ -11,6 +11,7 @@ import {
   sharedContextSession,
 } from "../session.js";
 import { startFixtureServer } from "../fixtures.js";
+import { isPageHumanized } from "../humanize.js";
 
 test("default local browser sessions discard state between tasks", async () => {
   const fixture = await startFixtureServer({
@@ -103,4 +104,15 @@ test("browser session environment exposes only an explicit CDP endpoint", () => 
     }),
     { MOSAIK_CDP_WS_URL: "wss://browser.example.test/token" },
   );
+});
+
+test("browser sessions humanize pages only when enabled", async () => {
+  const regular = await openBrowserSession();
+  const humanized = await openBrowserSession({ humanize: true });
+  try {
+    await regular.withPage(async (page) => assert.equal(isPageHumanized(page), false));
+    await humanized.withPage(async (page) => assert.equal(isPageHumanized(page), true));
+  } finally {
+    await Promise.all([regular.close(), humanized.close()]);
+  }
 });

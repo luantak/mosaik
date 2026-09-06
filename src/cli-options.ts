@@ -9,6 +9,7 @@ export interface RunCliOptions {
   inputs: Record<string, unknown>;
   dataDirectory: string;
   headless: boolean;
+  humanize?: boolean;
   browser?: "local" | "kernel";
   kernelStealth: boolean;
   kernelTimeoutSeconds: number;
@@ -44,6 +45,8 @@ Options:
       --kernel-stealth          Enable Kernel stealth mode and CAPTCHA solving
       --kernel-timeout <secs>   Kernel inactivity timeout, default 300
       --headless                Hide the browser window
+      --humanize                Use human-like interaction timing and mouse movement
+      --no-humanize             Disable a configured humanization default
       --json                    Print the complete result as JSON
   -h, --help                    Show this help
 
@@ -78,11 +81,16 @@ export function parseRunCliArgs(
       "kernel-stealth": { type: "boolean", default: false },
       "kernel-timeout": { type: "string", default: "300" },
       headless: { type: "boolean", default: false },
+      humanize: { type: "boolean" },
+      "no-humanize": { type: "boolean" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
   if (parsed.values.help) return { help: true };
+  if (parsed.values.humanize && parsed.values["no-humanize"]) {
+    throw new Error("Pass either --humanize or --no-humanize, not both");
+  }
   if (parsed.positionals.length > 1) throw new Error("Pass the task as one quoted argument");
   const positionalTask = parsed.positionals[0];
   const flagTask = parsed.values.task;
@@ -129,6 +137,11 @@ export function parseRunCliArgs(
       inputs,
       dataDirectory: resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik"),
       headless: parsed.values.headless,
+      ...(parsed.values.humanize
+        ? { humanize: true }
+        : parsed.values["no-humanize"]
+          ? { humanize: false }
+          : {}),
       ...(browser === undefined ? {} : { browser }),
       kernelStealth: parsed.values["kernel-stealth"],
       kernelTimeoutSeconds,
@@ -147,10 +160,9 @@ export function parseRunCliArgs(
   };
 }
 
-export interface ConfigCliOptions {
-  dataDirectory: string;
-  browser: "local" | "kernel";
-}
+export type ConfigCliOptions =
+  | { dataDirectory: string; setting: "browser"; value: "local" | "kernel" }
+  | { dataDirectory: string; setting: "humanize"; value: boolean };
 
 export type ConfigCliParseResult = { help: true } | { help: false; options: ConfigCliOptions };
 
@@ -158,6 +170,7 @@ export const CONFIG_CLI_HELP = `Set project-local Mosaik defaults.
 
 Usage:
   mosaik config set browser <local|kernel> [options]
+  mosaik config set humanize <true|false> [options]
 
 Options:
       --data-dir <directory>    Mosaik data directory, default .mosaik
@@ -170,8 +183,12 @@ export function parseConfigCliArgs(
 ): ConfigCliParseResult {
   const [subcommand, setting, value, ...rest] = args;
   if (subcommand === "--help" || subcommand === "-h") return { help: true };
-  if (subcommand !== "set" || setting !== "browser" || value === undefined) {
-    throw new Error("Usage: mosaik config set browser <local|kernel>");
+  if (
+    subcommand !== "set" ||
+    (setting !== "browser" && setting !== "humanize") ||
+    value === undefined
+  ) {
+    throw new Error("Usage: mosaik config set <browser|humanize> <value>");
   }
   const parsed = parseArgs({
     args: rest,
@@ -182,16 +199,17 @@ export function parseConfigCliArgs(
     },
   });
   if (parsed.values.help) return { help: true };
+  const dataDirectory = resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik");
+  if (setting === "humanize") {
+    if (value !== "true" && value !== "false") {
+      throw new Error("humanize must be true or false");
+    }
+    return { help: false, options: { setting, value: value === "true", dataDirectory } };
+  }
   if (value !== "local" && value !== "kernel") {
     throw new Error('browser must be "local" or "kernel"');
   }
-  return {
-    help: false,
-    options: {
-      browser: value,
-      dataDirectory: resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik"),
-    },
-  };
+  return { help: false, options: { setting, value, dataDirectory } };
 }
 
 export interface ActionsCliOptions {

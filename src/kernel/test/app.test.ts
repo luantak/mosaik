@@ -43,6 +43,11 @@ test("Kernel action rejects invalid payloads before opening a browser", async ()
   );
   await assert.rejects(
     () =>
+      runKernelMosaik(context, { task: "Inspect", url: "https://example.test", humanize: "yes" }),
+    /humanize must be a boolean/,
+  );
+  await assert.rejects(
+    () =>
       runKernelMosaik(context, {
         task: "Inspect",
         url: "https://example.test",

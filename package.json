@@ -57,6 +57,7 @@
     "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
     "@onkernel/sdk": "0.97.0",
     "acorn": "^8.18.0",
+    "ghost-cursor": "^1.4.2",
     "ink": "7.1.1",
     "oxfmt": "0.65.0",
     "playwright": "1.62.1",

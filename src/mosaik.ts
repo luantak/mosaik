@@ -14,6 +14,7 @@ import {
   type BrowserSession,
   type BrowserSessionOptions,
 } from "./runtime/session.js";
+import { configurePageHumanization } from "./runtime/humanize.js";
 
 export interface MosaikOptions extends BrowserSessionOptions {
   /** A supplied session remains owned by the caller. */
@@ -43,6 +44,9 @@ export class MosaikExecutionError extends Error {
 /** Create one browser owner. Calls are serialized to avoid racing its browser state. */
 export async function createMosaik(options: MosaikOptions = {}): Promise<Mosaik> {
   const session = options.session ?? (await openBrowserSession(options));
+  if (options.session !== undefined && options.humanize !== undefined) {
+    await session.withPage((page) => configurePageHumanization(page, options.humanize!));
+  }
   const cache = new Map<string, { source: string; normalized: string }>();
   const actionCache = new Map<
     string,
@@ -123,6 +127,7 @@ export async function createMosaik(options: MosaikOptions = {}): Promise<Mosaik>
       { id, siteId, version: 1, source: sources.get(id)! },
       {
         registry,
+        ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
         ...(options.repair ? { agent: options.repair.agent } : {}),
         input,
         loadAutomationSource: async (id) => sources.get(id),

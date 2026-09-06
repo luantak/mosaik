@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { test } from "vitest";
 import {
   parseActionsCliArgs,
+  parseConfigCliArgs,
   parseDoctorCliArgs,
   parseKernelCliArgs,
   parsePullCliArgs,
@@ -89,6 +90,22 @@ test("run CLI accepts Kernel browser settings", () => {
   assert.equal(parsed.options.kernelTimeoutSeconds, 900);
 });
 
+test("run CLI enables humanized execution only when requested", () => {
+  const enabled = parseRunCliArgs(["Search", "--url", "https://example.test", "--humanize"]);
+  assert.equal(enabled.help, false);
+  if (!enabled.help) assert.equal(enabled.options.humanize, true);
+
+  const disabled = parseRunCliArgs(["Search", "--url", "https://example.test", "--no-humanize"]);
+  assert.equal(disabled.help, false);
+  if (!disabled.help) assert.equal(disabled.options.humanize, false);
+
+  assert.throws(
+    () =>
+      parseRunCliArgs(["Search", "--url", "https://example.test", "--humanize", "--no-humanize"]),
+    /either --humanize or --no-humanize/,
+  );
+});
+
 test("run CLI keeps an omitted browser unset and accepts an auth connection override", () => {
   const parsed = parseRunCliArgs([
     "Inspect",
@@ -158,6 +175,19 @@ test("actions and doctor CLI options resolve data paths from the workspace", () 
     dataDirectory: resolve("/project/state"),
   });
   assert.equal(parseDoctorCliArgs(["--json"]).json, true);
+});
+
+test("config CLI accepts a persistent humanization default", () => {
+  const enabled = parseConfigCliArgs(["set", "humanize", "true"], "/project");
+  assert.deepEqual(enabled, {
+    help: false,
+    options: {
+      setting: "humanize",
+      value: true,
+      dataDirectory: resolve("/project/.mosaik"),
+    },
+  });
+  assert.throws(() => parseConfigCliArgs(["set", "humanize", "yes"]), /true or false/);
 });
 
 test("kernel deploy defaults to the project env file and parses deployment options", () => {
