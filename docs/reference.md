@@ -91,8 +91,12 @@ for machine-readable output.
 Pass `--humanize` to change interaction delivery without changing the generated action plan.
 Set a project default with `mosaik config set humanize true`; `--no-humanize` overrides it for
 one run. The setting applies to local and Kernel browser sessions. A deployed Kernel app accepts
-`"humanize": true` in its run payload. Wheel input and cursor motion may overlap. During browser
-waits, idle behavior may scroll the viewport in either direction; the next humanized action
+`"humanize": true` in its run payload. For session-owned pages, Mosaik places the pointer at a
+random viewport position before loading the start URL. The browser context retains that position
+through document navigation and carries it into replacement pages or tabs. Coordinates outside the
+viewport are retained too, so the next curved route re-enters from the window edge instead of
+resetting or jumping from an invented position. Wheel input and cursor motion may overlap. During
+browser waits, idle behavior may scroll the viewport in either direction; the next humanized action
 scrolls its own target back into view before interacting with it.
 
 When a task needs a new site action, Mosaik learns and saves the action, then
@@ -564,9 +568,11 @@ still needs its normal TypeScript execution support, such as `tsx`.
 `outputDirectory`, `repair`, `humanize`, and an abort `signal`. `humanize: true` changes only
 runtime interaction delivery: mouse paths use `ghost-cursor`, scrolling and typing are paced,
 wheel and cursor motion may overlap, and browser waits may include bounded cursor movement or
-vertical viewport scrolling. Idle scrolling does not predict future targets; each humanized action
-restores its target's visibility before interacting. Generated steps and saved source stay the
-same. To reuse an authenticated browser, pass
+vertical viewport scrolling. A session-owned run initializes one random pointer position before its
+first navigation and retains the last dispatched coordinates across navigation and pages in the
+same browser context, including coordinates outside the viewport. Idle scrolling does not predict
+future targets; each humanized action restores its target's visibility before interacting. Generated
+steps and saved source stay the same. To reuse an authenticated browser, pass
 `session`; the caller retains ownership of that session and closes it separately.
 Calls on one instance execute sequentially. `close()` waits for accepted calls and
 rejects new calls. Execution failures throw `MosaikExecutionError`, whose `result`

@@ -1,6 +1,14 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { path as ghostCursorPath } from "ghost-cursor";
-import type { ElementHandle, Frame, Locator, Mouse, Page, Request } from "playwright";
+import type {
+  BrowserContext,
+  ElementHandle,
+  Frame,
+  Locator,
+  Mouse,
+  Page,
+  Request,
+} from "playwright";
 import { HUMANIZED_CURSOR_TIMING, humanizedCursorRouteDurationMs } from "./humanize-timing.js";
 
 interface Point {
@@ -38,16 +46,24 @@ export interface HumanizationSettings {
   idleMaxDistance?: number;
 }
 
+interface ContextPointerState {
+  position: Point;
+  initialized: boolean;
+  initialization?: Promise<void>;
+}
+
 interface HumanizationState {
   position: Point;
   idleOrigin: Point;
   settings: Required<HumanizationSettings>;
   idleDestinations: Point[];
+  initialization?: Promise<void>;
   idleAbort?: AbortController;
   idleTask?: Promise<void>;
 }
 
 const humanizedPages = new WeakMap<Page, HumanizationState>();
+const contextPointers = new WeakMap<BrowserContext, ContextPointerState>();
 const pointerPositions = new WeakMap<Page, Point>();
 const instrumentedMice = new WeakMap<Mouse, Mouse["move"]>();
 const CLICK_NAVIGATION_DETECTION_MS = 250;
@@ -69,10 +85,23 @@ function markHumanizedClickDispatched(error: unknown): object {
 export function enablePageHumanization(page: Page, settings: HumanizationSettings = {}): void {
   if (humanizedPages.has(page)) return;
   instrumentMousePosition(page);
-  const position = pointerPositions.get(page) ?? { x: 0, y: 0 };
-  humanizedPages.set(page, {
-    position: { ...position },
-    idleOrigin: { ...position },
+  let pointer = contextPointers.get(page.context());
+  if (pointer === undefined) {
+    const previousPosition = pointerPositions.get(page);
+    pointer = {
+      position: previousPosition ?? { x: 0, y: 0 },
+      initialized: previousPosition !== undefined,
+    };
+    contextPointers.set(page.context(), pointer);
+  }
+  const state: HumanizationState = {
+    get position() {
+      return pointer.position;
+    },
+    set position(position: Point) {
+      pointer.position = position;
+    },
+    idleOrigin: { ...pointer.position },
     idleDestinations: [],
     settings: {
       idle: settings.idle ?? true,
@@ -82,7 +111,30 @@ export function enablePageHumanization(page: Page, settings: HumanizationSetting
       idleWheelChance: settings.idleWheelChance ?? 0.2,
       idleMaxDistance: settings.idleMaxDistance ?? 80,
     },
-  });
+  };
+  humanizedPages.set(page, state);
+  if (pointer.initialization !== undefined) {
+    retainInitialization(
+      state,
+      pointer.initialization.then(() => synchronizePointer(page, state)),
+    );
+  } else if (pointer.initialized) {
+    retainInitialization(state, synchronizePointer(page, state));
+  } else {
+    const initialization = initializePointer(page, state, pointer);
+    pointer.initialization = initialization;
+    retainInitialization(
+      state,
+      initialization.finally(() => {
+        if (pointer.initialization === initialization) delete pointer.initialization;
+      }),
+    );
+  }
+}
+
+function retainInitialization(state: HumanizationState, initialization: Promise<void>): void {
+  state.initialization = initialization;
+  void initialization.catch(() => undefined);
 }
 
 export async function configurePageHumanization(
@@ -93,12 +145,36 @@ export async function configurePageHumanization(
   instrumentMousePosition(page);
   if (enabled) {
     enablePageHumanization(page, settings);
+    await humanizedPages.get(page)?.initialization;
     return;
   }
   const state = humanizedPages.get(page);
   if (state === undefined) return;
   humanizedPages.delete(page);
+  await state.initialization?.catch(() => undefined);
   await stopIdle(state);
+}
+
+async function initializePointer(
+  page: Page,
+  state: HumanizationState,
+  pointer: ContextPointerState,
+): Promise<void> {
+  const viewport =
+    page.viewportSize() ??
+    (await page.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight })));
+  const position = {
+    x: randomNumber(8, Math.max(8, viewport.width - 8)),
+    y: randomNumber(8, Math.max(8, viewport.height - 8)),
+  };
+  state.position = position;
+  state.idleOrigin = { ...position };
+  await page.mouse.move(position.x, position.y);
+  pointer.initialized = true;
+}
+
+async function synchronizePointer(page: Page, state: HumanizationState): Promise<void> {
+  await page.mouse.move(state.position.x, state.position.y);
 }
 
 function instrumentMousePosition(page: Page): void {
@@ -110,6 +186,11 @@ function instrumentMousePosition(page: Page): void {
     await originalMove(x, y, options);
     const position = { x, y };
     pointerPositions.set(page, position);
+    const pointer = contextPointers.get(page.context());
+    if (pointer !== undefined) {
+      pointer.position = position;
+      pointer.initialized = true;
+    }
     const state = humanizedPages.get(page);
     if (state !== undefined) state.position = position;
   };
@@ -138,6 +219,7 @@ async function humanizedClickWithDeadline(
   target: Locator,
   deadline: InteractionDeadline,
 ): Promise<ElementHandle<HTMLElement | SVGElement>> {
+  await deadlineRace(state.initialization ?? Promise.resolve(), deadline);
   await stopIdle(state);
   await withHumanizedWait(page, () =>
     target.waitFor({ state: "visible", ...deadlineOptions(deadline) }),
@@ -527,6 +609,7 @@ export async function humanizedSelectOption(
   if (state === undefined) return target.selectOption(value, options);
 
   const deadline = createDeadline(options.timeout);
+  await deadlineRace(state.initialization ?? Promise.resolve(), deadline);
   await stopIdle(state);
   await withHumanizedWait(page, () =>
     target.waitFor({ state: "visible", ...deadlineOptions(deadline) }),
@@ -762,6 +845,7 @@ function cleanupKeyboardTargetGuard(page: Page, token: number): Promise<void> {
 export async function withHumanizedWait<T>(page: Page, operation: () => Promise<T>): Promise<T> {
   const state = humanizedPages.get(page);
   if (state === undefined || !state.settings.idle) return operation();
+  await state.initialization;
   await stopIdle(state);
   state.idleOrigin = { ...state.position };
   state.idleDestinations = await collectNeutralIdlePoints(page, state);
