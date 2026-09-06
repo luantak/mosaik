@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { path as ghostCursorPath } from "ghost-cursor";
 import type { ElementHandle, Frame, Locator, Mouse, Page, Request } from "playwright";
+import { HUMANIZED_CURSOR_TIMING, humanizedCursorRouteDurationMs } from "./humanize-timing.js";
 
 interface Point {
   x: number;
@@ -33,6 +34,7 @@ export interface HumanizationSettings {
   idleInitialDelayMs?: readonly [number, number];
   idleIntervalMs?: readonly [number, number];
   idleMoveChance?: number;
+  idleWheelChance?: number;
   idleMaxDistance?: number;
 }
 
@@ -77,6 +79,7 @@ export function enablePageHumanization(page: Page, settings: HumanizationSetting
       idleInitialDelayMs: settings.idleInitialDelayMs ?? [700, 1_600],
       idleIntervalMs: settings.idleIntervalMs ?? [900, 2_400],
       idleMoveChance: settings.idleMoveChance ?? 0.45,
+      idleWheelChance: settings.idleWheelChance ?? 0.2,
       idleMaxDistance: settings.idleMaxDistance ?? 80,
     },
   });
@@ -142,7 +145,7 @@ async function humanizedClickWithDeadline(
   if (!(await target.isEnabled(deadlineOptions(deadline)))) {
     throw new Error("Humanized click target is not actionable at the pointer");
   }
-  await humanizedScrollIntoView(page, target, deadline);
+  await humanizedScrollIntoView(page, state, target, deadline);
   const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
   if (intendedTarget === null) {
     throw new Error("Humanized click target is not actionable at the pointer");
@@ -266,6 +269,7 @@ async function ensureTargetEnabled(target: Locator, deadline: InteractionDeadlin
 
 async function humanizedScrollIntoView(
   page: Page,
+  state: HumanizationState,
   target: Locator,
   deadline?: InteractionDeadline,
 ): Promise<void> {
@@ -295,9 +299,30 @@ async function humanizedScrollIntoView(
       rect.top < 12 || rect.bottom > viewport.height - 12
         ? rect.top - viewport.height * randomNumber(0.35, 0.58)
         : 0;
-    await humanizedWheel(page, deltaX, deltaY, deadline);
+    await Promise.all([
+      humanizedWheel(page, deltaX, deltaY, deadline),
+      moveMouse(
+        page,
+        state,
+        scrollCompanionDestination(page, state),
+        undefined,
+        undefined,
+        deadline,
+      ),
+    ]);
     await deadlineDelay(randomInteger(45, 100), deadline);
   }
+}
+
+function scrollCompanionDestination(page: Page, state: HumanizationState): Point {
+  const viewport = page.viewportSize();
+  if (viewport === null) return { ...state.position };
+  const angle = randomNumber(0, Math.PI * 2);
+  const distance = randomNumber(24, 64);
+  return {
+    x: clamp(state.position.x + Math.cos(angle) * distance, 8, viewport.width - 8),
+    y: clamp(state.position.y + Math.sin(angle) * distance, 8, viewport.height - 8),
+  };
 }
 
 async function humanizedWheel(
@@ -507,7 +532,7 @@ export async function humanizedSelectOption(
     target.waitFor({ state: "visible", ...deadlineOptions(deadline) }),
   );
   await ensureTargetEnabled(target, deadline);
-  await humanizedScrollIntoView(page, target, deadline);
+  await humanizedScrollIntoView(page, state, target, deadline);
   await withHumanizedWait(page, () => target.hover({ ...deadlineOptions(deadline), trial: true }));
   const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
   if (intendedTarget === null) {
@@ -759,7 +784,7 @@ async function moveMouse(
   deadline?: InteractionDeadline,
 ): Promise<void> {
   const generated = ghostCursorPath(state.position, destination, {
-    moveSpeed: randomNumber(400, 600),
+    moveSpeed: randomRange(HUMANIZED_CURSOR_TIMING.moveSpeed),
   }) as Point[];
   const route = generated;
   if (
@@ -770,7 +795,7 @@ async function moveMouse(
   const distance = Math.hypot(destination.x - state.position.x, destination.y - state.position.y);
   const stepDelayMs = Math.max(
     2,
-    Math.round(Math.min(850, 180 + distance * 0.45) / Math.max(1, route.length)),
+    Math.round(humanizedCursorRouteDurationMs(distance) / Math.max(1, route.length)),
   );
   for (const point of route) {
     if (signal?.aborted) return;
@@ -804,18 +829,46 @@ async function runIdleLoop(
   try {
     await abortableDelay(randomRange(state.settings.idleInitialDelayMs), signal);
     while (!signal.aborted) {
+      const tasks: Promise<void>[] = [];
       if (Math.random() < state.settings.idleMoveChance) {
         const destination = neutralIdlePoint(state);
         if (destination !== undefined)
-          await moveMouse(page, state, destination, signal, {
-            origin: state.idleOrigin,
-            maxDistance: state.settings.idleMaxDistance,
-          });
+          tasks.push(
+            moveMouse(page, state, destination, signal, {
+              origin: state.idleOrigin,
+              maxDistance: state.settings.idleMaxDistance,
+            }),
+          );
       }
+      if (Math.random() < state.settings.idleWheelChance) tasks.push(idleWheel(page, signal));
+      await Promise.allSettled(tasks);
       await abortableDelay(randomRange(state.settings.idleIntervalMs), signal);
     }
   } catch {
     // Idle motion is best-effort and must not change the awaited operation's outcome.
+  }
+}
+
+async function idleWheel(page: Page, signal: AbortSignal): Promise<void> {
+  const deltaY = randomNumber(240, 520) * (Math.random() < 0.5 ? -1 : 1);
+  const steps = randomInteger(5, 9);
+  const weights = Array.from({ length: steps }, (_, index) =>
+    Math.sin((Math.PI * (index + 1)) / (steps + 1)),
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  for (const weight of weights) {
+    if (signal.aborted) return;
+    await page.mouse.wheel(0, (deltaY * weight) / totalWeight);
+    await page
+      .evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      )
+      .catch(() => undefined);
+    if (signal.aborted) return;
+    await abortableDelay(randomInteger(12, 28), signal);
   }
 }
 

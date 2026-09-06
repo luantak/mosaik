@@ -91,7 +91,9 @@ for machine-readable output.
 Pass `--humanize` to change interaction delivery without changing the generated action plan.
 Set a project default with `mosaik config set humanize true`; `--no-humanize` overrides it for
 one run. The setting applies to local and Kernel browser sessions. A deployed Kernel app accepts
-`"humanize": true` in its run payload.
+`"humanize": true` in its run payload. Wheel input and cursor motion may overlap. During browser
+waits, idle behavior may scroll the viewport in either direction; the next humanized action
+scrolls its own target back into view before interacting with it.
 
 When a task needs a new site action, Mosaik learns and saves the action, then
 executes the generated automation in the same run. Inspect the current library
@@ -561,8 +563,10 @@ still needs its normal TypeScript execution support, such as `tsx`.
 `createMosaik` accepts `startUrl`, `profileDirectory`, `timeoutMs`, `maxActionCalls`,
 `outputDirectory`, `repair`, `humanize`, and an abort `signal`. `humanize: true` changes only
 runtime interaction delivery: mouse paths use `ghost-cursor`, scrolling and typing are paced,
-and browser waits may include bounded cursor movement. Generated steps and saved source stay
-the same. To reuse an authenticated browser, pass
+wheel and cursor motion may overlap, and browser waits may include bounded cursor movement or
+vertical viewport scrolling. Idle scrolling does not predict future targets; each humanized action
+restores its target's visibility before interacting. Generated steps and saved source stay the
+same. To reuse an authenticated browser, pass
 `session`; the caller retains ownership of that session and closes it separately.
 Calls on one instance execute sequentially. `close()` waits for accepted calls and
 rejects new calls. Execution failures throw `MosaikExecutionError`, whose `result`

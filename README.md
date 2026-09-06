@@ -130,10 +130,7 @@ mosaik run "Search for ceramic mugs" --url https://example.com
 ```
 
 `--no-humanize` overrides the project default. Humanization runs below composition and
-discovery, so it does not add steps or change saved action and automation source. The
-[Books to Scrape demo](docs/assets/humanized-books-demo.mp4) saves 100 covers by following
-four `Next` links across five catalog pages. It never opens the 100 detail pages, and the red
-cursor marker makes the generated movement visible in the recording.
+discovery, so it does not add steps or change saved action and automation source.
 
 That example assumes you've already generated `searchProducts` for your site.
 Inputs and return values keep their inferred TypeScript types. By default, a
