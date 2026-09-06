@@ -96,6 +96,27 @@ test("synchronous enablement contains initialization failures until an action ob
   });
 });
 
+test("configuration can retry after a transient initial pointer failure", async () => {
+  await withBrowserPage(async (page) => {
+    const originalMove = page.mouse.move.bind(page.mouse);
+    const failure = new Error("initial pointer move failed");
+    let attempts = 0;
+    page.mouse.move = async (x, y, options) => {
+      attempts += 1;
+      if (attempts === 1) throw failure;
+      await originalMove(x, y, options);
+    };
+
+    await assert.rejects(
+      configurePageHumanization(page, true, { idle: false }),
+      (error: unknown) => error === failure,
+    );
+    await configurePageHumanization(page, true, { idle: false });
+
+    assert.equal(attempts, 2);
+  });
+});
+
 test("disabling waits for an in-flight initial pointer move", async () => {
   await withBrowserPage(async (page) => {
     const delayed = blockMethodUntilReleased(page.mouse, "move");

@@ -145,7 +145,16 @@ export async function configurePageHumanization(
   instrumentMousePosition(page);
   if (enabled) {
     enablePageHumanization(page, settings);
-    await humanizedPages.get(page)?.initialization;
+    const state = humanizedPages.get(page);
+    try {
+      await state?.initialization;
+    } catch (error) {
+      if (state !== undefined && humanizedPages.get(page) === state) {
+        humanizedPages.delete(page);
+        await stopIdle(state);
+      }
+      throw error;
+    }
     return;
   }
   const state = humanizedPages.get(page);
