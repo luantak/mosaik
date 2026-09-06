@@ -49,8 +49,112 @@ test("disabled execution keeps the original timeout and humanization adds only i
   assert.equal(HUMANIZED_STEP_TIMEOUT_ALLOWANCE_MS, 1_000);
 });
 
+test("humanization initializes the pointer at a random viewport position before navigation", async () => {
+  await withBrowserPage(async (page) => {
+    const moves: Array<{ x: number; y: number }> = [];
+    const originalMove = page.mouse.move.bind(page.mouse);
+    page.mouse.move = async (x, y, options) => {
+      moves.push({ x, y });
+      await originalMove(x, y, options);
+    };
+    const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
+    try {
+      assert.equal(page.url(), "about:blank");
+      await configurePageHumanization(page, true, { idle: false });
+
+      assert.equal(page.url(), "about:blank");
+      assert.equal(moves.length, 1);
+      assert.ok(moves[0]!.x > 0 && moves[0]!.x < 900);
+      assert.ok(moves[0]!.y > 0 && moves[0]!.y < 600);
+      assert.notDeepEqual(moves[0], { x: 450, y: 300 });
+    } finally {
+      random.mockRestore();
+    }
+  });
+});
+
+test("synchronous enablement contains initialization failures until an action observes them", async () => {
+  await withBrowserPage(async (page) => {
+    const failure = new Error("initial pointer move failed");
+    page.mouse.move = async () => {
+      throw failure;
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      enablePageHumanization(page, { idle: false });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.deepEqual(unhandled, []);
+      await assert.rejects(
+        humanizedClick(page, page.locator("button"), { timeout: 1_000 }),
+        (error: unknown) => error === failure,
+      );
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});
+
+test("disabling waits for an in-flight initial pointer move", async () => {
+  await withBrowserPage(async (page) => {
+    const delayed = blockMethodUntilReleased(page.mouse, "move");
+    enablePageHumanization(page, { idle: false });
+    await delayed.entered;
+
+    let returned = false;
+    const disabling = configurePageHumanization(page, false).then(() => {
+      returned = true;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(returned, false);
+    } finally {
+      delayed.release();
+    }
+    await disabling;
+    await delayed.settled;
+    assert.equal(returned, true);
+  });
+});
+
+test("humanization keeps an outside pointer position when another tab takes over", async () => {
+  await withBrowserPage(async (page) => {
+    await configurePageHumanization(page, true, { idle: false });
+    await page.mouse.move(-24, 240);
+
+    const otherPagePromise = page.context().waitForEvent("page");
+    await page.evaluate(() => window.open("about:blank", "_blank"));
+    const otherPage = await otherPagePromise;
+    const synchronizedMoves: Array<{ x: number; y: number }> = [];
+    const originalMove = otherPage.mouse.move.bind(otherPage.mouse);
+    otherPage.mouse.move = async (x, y, options) => {
+      synchronizedMoves.push({ x, y });
+      await originalMove(x, y, options);
+    };
+    let routeStart: { x: number; y: number } | undefined;
+    ghostPathOverride.create = (start, end) => {
+      routeStart = start;
+      return [end];
+    };
+    try {
+      await configurePageHumanization(otherPage, true, { idle: false });
+      assert.deepEqual(synchronizedMoves, [{ x: -24, y: 240 }]);
+
+      await otherPage.setContent('<button style="margin:200px">Continue</button>');
+      await humanizedClick(otherPage, otherPage.getByRole("button"), { timeout: 3_000 });
+
+      assert.deepEqual(routeStart, { x: -24, y: 240 });
+    } finally {
+      ghostPathOverride.create = undefined;
+      await otherPage.close();
+    }
+  });
+});
+
 test("humanized clicks follow a multi-point mouse path and hold the button", async () => {
   await withBrowserPage(async (page) => {
+    await configurePageHumanization(page, true, { idle: false });
     await page.setContent(`
       <style>button { position: absolute; left: 700px; top: 420px; width: 140px; height: 60px; }</style>
       <button>Continue</button>
@@ -66,7 +170,8 @@ test("humanized clicks follow a multi-point mouse path and hold the button", asy
         }
       </script>
     `);
-    enablePageHumanization(page, { idle: false });
+    await page.mouse.move(10, 10);
+    await page.evaluate(() => ((window as unknown as { events: unknown[] }).events = []));
 
     await humanizedClick(page, page.getByRole("button", { name: "Continue" }), { timeout: 3_000 });
 
@@ -124,6 +229,7 @@ test("humanized clicks dispatch every generated ghost-cursor point", async () =>
 
 test("humanized clicks continue from a caller-positioned pointer without jumping to center", async () => {
   await withBrowserPage(async (page) => {
+    await configurePageHumanization(page, true, { idle: false });
     await page.setContent(`
       <button style="position:absolute;left:700px;top:420px;width:140px;height:60px">Continue</button>
       <script>
@@ -132,7 +238,6 @@ test("humanized clicks continue from a caller-positioned pointer without jumping
       </script>
     `);
     await page.mouse.move(10, 10);
-    enablePageHumanization(page, { idle: false });
     await page.evaluate(() => ((window as unknown as { moves: unknown[] }).moves = []));
 
     await humanizedClick(page, page.getByRole("button", { name: "Continue" }), { timeout: 3_000 });
@@ -185,8 +290,9 @@ test("humanized clicks do not wait for a navigation timeout when no navigation s
   });
 });
 
-test("humanized clicks reject targets inside aria-disabled ancestors without pointer input", async () => {
+test("humanized clicks reject targets inside aria-disabled ancestors without interaction input", async () => {
   await withBrowserPage(async (page) => {
+    await configurePageHumanization(page, true, { idle: false });
     await page.setContent(`
       <div role="button" aria-disabled="true" style="position:absolute;left:650px;top:400px;padding:30px">
         <span id="target">Continue</span>
@@ -197,7 +303,6 @@ test("humanized clicks reject targets inside aria-disabled ancestors without poi
           document.addEventListener(type, () => window.events.push(type));
       </script>
     `);
-    enablePageHumanization(page, { idle: false });
 
     await assert.rejects(
       humanizedClick(page, page.locator("#target"), { timeout: 2_000 }),
@@ -1761,6 +1866,7 @@ test.each([
 
 test("saved click steps use the humanized executor without changing the step", async () => {
   await withBrowserPage(async (page) => {
+    await configurePageHumanization(page, true, { idle: false });
     await page.setContent(`
       <button style="position:absolute;left:700px;top:420px">Continue</button>
       <script>
@@ -1768,7 +1874,8 @@ test("saved click steps use the humanized executor without changing the step", a
         document.addEventListener("mousemove", event => window.moves.push({ x: event.clientX, y: event.clientY }));
       </script>
     `);
-    enablePageHumanization(page, { idle: false });
+    await page.mouse.move(10, 10);
+    await page.evaluate(() => ((window as unknown as { moves: unknown[] }).moves = []));
     const step = {
       id: "continue",
       type: "click" as const,
