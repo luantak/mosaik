@@ -4,6 +4,7 @@ import { chmod, mkdir, readFile, mkdtemp, rm } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { BrowserResponseCache, type CapturedBrowserResponse } from "./assets.js";
 import { PAGE_SIGNAL_INIT } from "./degraded.js";
+import { configurePageHumanization } from "./humanize.js";
 
 export interface BrowserSession {
   kind: "ephemeral" | "persistent";
@@ -32,6 +33,8 @@ export interface InteractiveBrowserSession extends BrowserSession {
 export interface BrowserSessionOptions {
   profileDirectory?: string;
   headless?: boolean;
+  /** Humanize runtime input delivery without changing generated steps or saved source. */
+  humanize?: boolean;
 }
 
 export const MOSAIK_CDP_WS_URL_ENV = "MOSAIK_CDP_WS_URL";
@@ -48,11 +51,13 @@ export async function openBrowserSession(
         startUrl: "about:blank",
         profileDirectory,
         headless: options.headless ?? true,
+        ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
       });
       try {
         const browser = await chromium.connectOverCDP(session.cdpEndpoint!);
         return ephemeralSession(browser, {
           cdpEndpoint: session.cdpEndpoint!,
+          ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
           close: async () => {
             try {
               await browser.close();
@@ -78,6 +83,7 @@ export async function openBrowserSession(
     startUrl: "about:blank",
     profileDirectory: options.profileDirectory,
     headless: options.headless ?? true,
+    ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
   });
 }
 
@@ -85,6 +91,7 @@ export async function openInteractiveBrowserSession(options: {
   startUrl: string;
   profileDirectory: string;
   headless?: boolean;
+  humanize?: boolean;
 }): Promise<InteractiveBrowserSession> {
   await prepareProfileDirectory(options.profileDirectory);
   const context = await chromium.launchPersistentContext(options.profileDirectory, {
@@ -96,6 +103,7 @@ export async function openInteractiveBrowserSession(options: {
     context.pages().find((candidate) => candidate.url() === "about:blank") ??
     context.pages().find((candidate) => !candidate.isClosed()) ??
     (await context.newPage());
+  await configurePageHumanization(initialPage, options.humanize ?? false);
   installSafeDialogHandler(initialPage);
   const [port] = (await readFile(join(options.profileDirectory, "DevToolsActivePort"), "utf8"))
     .trim()
@@ -118,6 +126,7 @@ export async function openInteractiveBrowserSession(options: {
     if (!page.isClosed()) return page;
     responses.close();
     page = context.pages().find((candidate) => !candidate.isClosed()) ?? (await context.newPage());
+    await configurePageHumanization(page, options.humanize ?? false);
     installSafeDialogHandler(page);
     responses = new BrowserResponseCache(
       page,
@@ -179,6 +188,7 @@ export function ephemeralSession(
     cdpEndpoint?: string;
     close?: () => Promise<void>;
     defaultStepTimeoutMs?: number;
+    humanize?: boolean;
   } = {},
 ): BrowserSession {
   const defaultStepTimeoutMs =
@@ -193,6 +203,7 @@ export function ephemeralSession(
       await context.addInitScript(PAGE_SIGNAL_INIT);
       try {
         const page = await context.newPage();
+        await configurePageHumanization(page, options.humanize ?? false);
         installSafeDialogHandler(page);
         return await run(page);
       } finally {
@@ -210,12 +221,14 @@ export async function sharedContextSession(
     cdpEndpoint?: string;
     close?: () => Promise<void>;
     defaultStepTimeoutMs?: number;
+    humanize?: boolean;
   } = {},
 ): Promise<BrowserSession> {
   const context = browser.contexts()[0] ?? (await browser.newContext());
   await context.addInitScript(PAGE_SIGNAL_INIT);
   let page =
     context.pages().find((candidate) => !candidate.isClosed()) ?? (await context.newPage());
+  await configurePageHumanization(page, options.humanize ?? false);
   installSafeDialogHandler(page);
   const defaultStepTimeoutMs =
     options.defaultStepTimeoutMs ??
@@ -224,6 +237,7 @@ export async function sharedContextSession(
   const activePage = async (): Promise<Page> => {
     if (!page.isClosed()) return page;
     page = context.pages().find((candidate) => !candidate.isClosed()) ?? (await context.newPage());
+    await configurePageHumanization(page, options.humanize ?? false);
     installSafeDialogHandler(page);
     return page;
   };

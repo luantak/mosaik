@@ -59,8 +59,10 @@ import { loadInteractiveCliHistory, saveInteractiveCliHistory } from "./config.j
 import {
   findKernelAuthConnection,
   loadMosaikConfig,
+  resolveHumanization,
   resolveMosaikBrowser,
   saveDefaultBrowser,
+  saveHumanizationDefault,
 } from "./config.js";
 import { composeAndRun } from "./composition/index.js";
 import { initializeMosaikProject } from "./init.js";
@@ -228,10 +230,12 @@ async function openInteractiveCliSession(
   workingDirectory: string,
 ): Promise<InteractiveCliSession> {
   const dataDirectory = resolve(workingDirectory, ".mosaik");
+  const config = await loadMosaikConfig(dataDirectory);
   const profileDirectory = localBrowserProfileDirectory(dataDirectory, startUrl);
   const browserSession = await openInteractiveBrowserSession({
     startUrl,
     profileDirectory,
+    humanize: resolveHumanization(undefined, config),
   });
   const runId = randomUUID();
   const runDirectory = resolve(dataDirectory, "runs", runId);
@@ -382,8 +386,13 @@ async function configCommand(args: string[], workingDirectory: string): Promise<
     process.stdout.write(CONFIG_CLI_HELP);
     return 0;
   }
-  const path = await saveDefaultBrowser(parsed.options.dataDirectory, parsed.options.browser);
-  process.stdout.write(`Saved browser default ${parsed.options.browser} to ${path}\n`);
+  const path =
+    parsed.options.setting === "browser"
+      ? await saveDefaultBrowser(parsed.options.dataDirectory, parsed.options.value)
+      : await saveHumanizationDefault(parsed.options.dataDirectory, parsed.options.value);
+  process.stdout.write(
+    `Saved ${parsed.options.setting} default ${String(parsed.options.value)} to ${path}\n`,
+  );
   return 0;
 }
 
@@ -396,6 +405,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
   const options = parsed.options;
   const config = await loadMosaikConfig(options.dataDirectory);
   const browserProvider = resolveMosaikBrowser(options.browser, config);
+  const humanize = resolveHumanization(options.humanize, config);
   if (browserProvider === "local" && options.kernelAuthConnection !== undefined) {
     throw new Error("--kernel-auth-connection requires --browser kernel");
   }
@@ -443,12 +453,13 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
         ? openKernelBrowserSession({
             ...(kernel === undefined ? {} : { client: kernel }),
             headless: options.headless,
+            humanize,
             stealth: options.kernelStealth,
             timeoutSeconds: options.kernelTimeoutSeconds,
             ...(resolvedProfile === undefined ? {} : { profileName: resolvedProfile }),
           })
         : savedLocalAuthentication === undefined
-          ? openBrowserSession({ headless: options.headless })
+          ? openBrowserSession({ headless: options.headless, humanize })
           : openInteractiveBrowserSession({
               startUrl: options.startUrl,
               profileDirectory: localBrowserProfileDirectory(
@@ -456,6 +467,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
                 options.startUrl,
               ),
               headless: options.headless,
+              humanize,
             }),
   );
   try {

@@ -92,6 +92,76 @@ return await readPage(ctx, input);
   }
 });
 
+test("createMosaik humanizes a caller-owned session without changing saved action source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosaik-humanize-"));
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+  const session: import("../runtime/session.js").BrowserSession = {
+    kind: "ephemeral",
+    withPage: async (run) => run(page),
+    close: async () => {},
+  };
+  const regular = await createMosaik({ session, humanize: false });
+  await page.mouse.move(10, 10);
+  await regular.close();
+  const mosaik = await createMosaik({ session, humanize: true });
+  try {
+    await page.setContent(`
+      <button style="position:absolute;left:700px;top:420px">Continue</button>
+      <script>
+        window.moves = [];
+        window.clicked = false;
+        document.addEventListener("mousemove", event => window.moves.push({ x: event.clientX, y: event.clientY }));
+        document.querySelector("button").addEventListener("click", () => window.clicked = true);
+      </script>
+    `);
+    const automations = join(root, "sites/example.com/automations");
+    const actions = join(root, "sites/example.com/actions");
+    const pkg = join(root, "node_modules/mosaik");
+    await Promise.all([
+      mkdir(automations, { recursive: true }),
+      mkdir(actions, { recursive: true }),
+      mkdir(pkg, { recursive: true }),
+    ]);
+    await symlink(resolve("src"), join(pkg, "src"), "dir");
+    await writeFile(join(root, "package.json"), '{"type":"module"}');
+    await writeFile(
+      join(pkg, "package.json"),
+      JSON.stringify({
+        type: "module",
+        exports: {
+          "./automations": "./src/library/automations-api.ts",
+          "./actions": "./src/library/actions-api.ts",
+        },
+      }),
+    );
+    const actionSource = `import { defineAction, click, role } from "mosaik/actions";
+export const continueTask = defineAction({ id: "continue-task", siteId: "example.com", name: "continueTask", description: "Continue", inputs: {}, outputs: {}, safety: "browser-local", steps: [click({ id: "continue", locator: role("button", "Continue"), safety: "browser-local" })] });`;
+    await writeFile(join(actions, "continueTask.ts"), actionSource);
+    await writeFile(
+      join(automations, "continueTask.ts"),
+      `import { defineAutomation } from "mosaik/automations";
+import { continueTask } from "../actions/continueTask.js";
+export default defineAutomation(import.meta.url, async ctx => { await continueTask(ctx, {}); return "clicked"; });`,
+    );
+    const imported = await import(pathToFileURL(join(automations, "continueTask.ts")).href);
+
+    assert.equal(await imported.default(mosaik, {}), "clicked");
+    const observed = await page.evaluate(() => ({
+      moves: (window as unknown as { moves: Array<{ x: number; y: number }> }).moves,
+      clicked: (window as unknown as { clicked: boolean }).clicked,
+    }));
+    assert.equal(observed.clicked, true);
+    assert.ok(observed.moves.length > 3);
+    assert.ok(Math.hypot(observed.moves[0]!.x - 10, observed.moves[0]!.y - 10) < 2);
+    assert.equal(await readFile(join(actions, "continueTask.ts"), "utf8"), actionSource);
+  } finally {
+    await mosaik.close();
+    await browser.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("wrapper dispatches without invoking its body and preserves inferred return types", async () => {
   let bodyCalled = false;
   const typed = defineAutomation(import.meta.url, async (_ctx, input: { query: string }) => {

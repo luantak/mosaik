@@ -88,6 +88,11 @@ objects, and arrays are decoded as their JSON types. Use
 `--input-json '{"query":"mug","maxPrice":20}'` for a full object and `--json`
 for machine-readable output.
 
+Pass `--humanize` to change interaction delivery without changing the generated action plan.
+Set a project default with `mosaik config set humanize true`; `--no-humanize` overrides it for
+one run. The setting applies to local and Kernel browser sessions. A deployed Kernel app accepts
+`"humanize": true` in its run payload.
+
 When a task needs a new site action, Mosaik learns and saves the action, then
 executes the generated automation in the same run. Inspect the current library
 with:
@@ -554,7 +559,10 @@ one level deep; cycles and imports outside the site are rejected. Your applicati
 still needs its normal TypeScript execution support, such as `tsx`.
 
 `createMosaik` accepts `startUrl`, `profileDirectory`, `timeoutMs`, `maxActionCalls`,
-`outputDirectory`, `repair`, and an abort `signal`. To reuse an authenticated browser, pass
+`outputDirectory`, `repair`, `humanize`, and an abort `signal`. `humanize: true` changes only
+runtime interaction delivery: mouse paths use `ghost-cursor`, scrolling and typing are paced,
+and browser waits may include bounded cursor movement. Generated steps and saved source stay
+the same. To reuse an authenticated browser, pass
 `session`; the caller retains ownership of that session and closes it separately.
 Calls on one instance execute sequentially. `close()` waits for accepted calls and
 rejects new calls. Execution failures throw `MosaikExecutionError`, whose `result`

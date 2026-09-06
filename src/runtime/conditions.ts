@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { resolveStepValue, type Condition } from "../core/index.js";
 import { resolveLocator } from "./locators.js";
+import { withHumanizedWait } from "./humanize.js";
 
 export class ConditionError extends Error {
   constructor(
@@ -104,6 +105,18 @@ export async function waitCondition(
   inputs: Record<string, unknown>,
   timeoutMs: number,
   before: BeforeValues = new Map(),
+): Promise<void> {
+  await withHumanizedWait(page, async () => {
+    await pollCondition(page, condition, inputs, timeoutMs, before);
+  });
+}
+
+async function pollCondition(
+  page: Page,
+  condition: Condition,
+  inputs: Record<string, unknown>,
+  timeoutMs: number,
+  before: BeforeValues,
 ): Promise<void> {
   const deadline = Date.now() + Math.min(Math.max(timeoutMs, 0), 30_000);
   do {

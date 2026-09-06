@@ -77,7 +77,8 @@ https://books.toscrape.com/
 Once the browser opens, give it this task:
 
 ```text
-download the first 100 book covers
+download the first 100 book covers. Move through the catalog with Next; don't open each book's
+detail page separately.
 ```
 
 Downloaded covers go into `.mosaik/runs/<run-id>/output/`. The actions and automation
@@ -112,6 +113,27 @@ try {
   await mosaik.close();
 }
 ```
+
+Set `humanize: true` to keep the generated automation unchanged while replacing direct
+Playwright interactions with curved `ghost-cursor` mouse paths, paced scrolling, variable
+typing, and occasional cursor movement during browser waits:
+
+```ts
+const mosaik = await createMosaik({ headless: false, humanize: true });
+```
+
+For the CLI, pass `--humanize` for one run or save it as the project default:
+
+```sh
+mosaik config set humanize true
+mosaik run "Search for ceramic mugs" --url https://example.com
+```
+
+`--no-humanize` overrides the project default. Humanization runs below composition and
+discovery, so it does not add steps or change saved action and automation source. The
+[Books to Scrape demo](docs/assets/humanized-books-demo.mp4) saves 100 covers by following
+four `Next` links across five catalog pages. It never opens the 100 detail pages, and the red
+cursor marker makes the generated movement visible in the recording.
 
 That example assumes you've already generated `searchProducts` for your site.
 Inputs and return values keep their inferred TypeScript types. By default, a

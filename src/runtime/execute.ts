@@ -29,8 +29,17 @@ import { ConditionError, captureBefore, waitCondition } from "./conditions.js";
 import { bindLocator, locatorLabel, resolveLocator } from "./locators.js";
 import { collectOverview } from "./overview.js";
 import { isBrowserSession, type BrowserSession } from "./session.js";
+import {
+  humanizedClick,
+  humanizedFill,
+  humanizedSelectOption,
+  isPageHumanized,
+  wasHumanizedClickDispatched,
+  withHumanizedWait,
+} from "./humanize.js";
 
 export const DEFAULT_STEP_TIMEOUT_MS = 1_500;
+export const HUMANIZED_STEP_TIMEOUT_ALLOWANCE_MS = 1_000;
 
 export interface AutomationRunResult {
   success: boolean;
@@ -86,7 +95,11 @@ export async function executeAutomation(
           };
         }
         log.emit("step.started", { actionId: action.id, stepId: step.id, stepType: step.type });
-        const outcome = await executeStep(page, step, timeoutMs, options.inputs);
+        const stepTimeoutMs =
+          isPageHumanized(page) && options.timeoutMs === undefined
+            ? timeoutMs + HUMANIZED_STEP_TIMEOUT_ALLOWANCE_MS
+            : timeoutMs;
+        const outcome = await executeStep(page, step, stepTimeoutMs, options.inputs);
         if (outcome.ok) {
           if (outcome.output !== undefined) {
             outputs[outcome.output.key] =
@@ -289,10 +302,12 @@ async function executeStepOperation(
       case "navigate": {
         const target = resolveStepValue(step.url, inputs);
         const url = /^[a-z]+:\/\//i.test(target) ? target : new URL(target, page.url()).href;
-        const response = await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: timeoutMs,
-        });
+        const response = await withHumanizedWait(page, () =>
+          page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: timeoutMs,
+          }),
+        );
         const status = response?.status();
         if (status !== undefined && status >= 500) {
           return {
@@ -314,25 +329,35 @@ async function executeStepOperation(
       }
       case "click": {
         const target = resolveLocator(page, step.locator);
-        await target.click({ timeout: timeoutMs, trial: true });
+        if (!isPageHumanized(page)) await target.click({ timeout: timeoutMs, trial: true });
         try {
-          await target.click({ timeout: timeoutMs });
+          if (isPageHumanized(page)) await humanizedClick(page, target, { timeout: timeoutMs });
+          else await target.click({ timeout: timeoutMs });
         } catch (error) {
+          if (isPageHumanized(page) && !wasHumanizedClickDispatched(error)) throw error;
           return {
             ok: false,
             type: "uncertain-outcome",
+            actionPerformed: true,
             message: `Click was attempted; outcome is unknown: ${String(error)}`,
           };
         }
         return { ok: true };
       }
       case "fill":
-        await resolveLocator(page, step.locator).fill(resolveStepValue(step.value, inputs), {
-          timeout: timeoutMs,
-        });
+        await humanizedFill(
+          page,
+          resolveLocator(page, step.locator),
+          resolveStepValue(step.value, inputs),
+          {
+            timeout: timeoutMs,
+          },
+        );
         return { ok: true };
       case "select":
-        await resolveLocator(page, step.locator).selectOption(
+        await humanizedSelectOption(
+          page,
+          resolveLocator(page, step.locator),
           resolveStepValue(step.value, inputs),
           {
             timeout: timeoutMs,
