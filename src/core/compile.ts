@@ -42,14 +42,70 @@ export function compile(automation: Automation): Automation {
 
 function validateStep(step: Step): void {
   switch (step.type) {
+    case "back":
+      return;
     case "click":
       validateLocator(step.locator, step.id);
+      if (step.button !== undefined && !["left", "right", "middle"].includes(step.button)) {
+        throw new CompileError(`Step ${step.id} has an invalid click button`);
+      }
+      if (step.clickCount !== undefined && step.clickCount !== 1 && step.clickCount !== 2) {
+        throw new CompileError(`Step ${step.id} clickCount must be 1 or 2`);
+      }
+      if (
+        step.modifiers !== undefined &&
+        (!Array.isArray(step.modifiers) ||
+          step.modifiers.some(
+            (modifier) => !["Alt", "Control", "Meta", "Shift"].includes(modifier),
+          ) ||
+          new Set(step.modifiers).size !== step.modifiers.length)
+      ) {
+        throw new CompileError(`Step ${step.id} has invalid or duplicate click modifiers`);
+      }
+      if (step.dialog !== undefined && !["accept", "dismiss"].includes(step.dialog.action))
+        throw new CompileError(`Step ${step.id} has an invalid dialog response`);
+      if (step.dialog?.promptText !== undefined) {
+        if (step.dialog.action !== "accept" || !stepValuePresent(step.dialog.promptText)) {
+          throw new CompileError(`Step ${step.id} has an invalid dialog prompt response`);
+        }
+      }
+      return;
+    case "hover":
+      validateLocator(step.locator, step.id);
+      return;
+    case "drag":
+      validateLocator(step.locator, `${step.id}.source`);
+      validateLocator(step.target, `${step.id}.target`);
       return;
     case "fill":
-    case "select":
       validateLocator(step.locator, step.id);
       if (!stepValuePresent(step.value)) {
         throw new CompileError(`Step ${step.id} requires a value`);
+      }
+      return;
+    case "upload":
+      validateLocator(step.locator, step.id);
+      if (step.safety !== "external-side-effect") {
+        throw new CompileError(`Step ${step.id} upload safety must be external-side-effect`);
+      }
+      if (
+        step.file === null ||
+        typeof step.file !== "object" ||
+        step.file.kind !== "input" ||
+        !stepValuePresent(step.file)
+      ) {
+        throw new CompileError(`Step ${step.id} upload file must be an input reference`);
+      }
+      return;
+    case "select":
+      validateLocator(step.locator, step.id);
+      if (
+        (Array.isArray(step.value) &&
+          (step.value.length === 0 ||
+            step.value.some((value) => typeof value !== "string" || value.length === 0))) ||
+        (!Array.isArray(step.value) && !stepValuePresent(step.value))
+      ) {
+        throw new CompileError(`Step ${step.id} requires one or more values`);
       }
       return;
     case "extract-text":

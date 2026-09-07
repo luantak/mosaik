@@ -1,13 +1,16 @@
 export { classify } from "./classify.js";
 export { CompileError, compile } from "./compile.js";
 export {
+  back,
   click,
   css,
+  drag,
   extractList,
   extractText,
   fill,
   form,
   hrefField,
+  hover,
   inputRef,
   label,
   landmark,
@@ -19,6 +22,7 @@ export {
   testId,
   text,
   textField,
+  upload,
   urlField,
 } from "./dsl.js";
 export { RunLog } from "./events.js";
@@ -49,6 +53,7 @@ export {
   hasLocator,
   isStepValue,
   lookupInput,
+  resolveSelectValue,
   resolveStepValue,
   stepValuePresent,
   type Condition,
@@ -62,7 +67,9 @@ export {
   type AutomationVerificationStatus,
   type AutomationVersionRecord,
   type AutomationVersionStats,
+  type BackStep,
   type ClickStep,
+  type DragStep,
   type ExtractListStep,
   type ExtractTextStep,
   type FailureCategory,
@@ -70,7 +77,9 @@ export {
   type FailureEvidence,
   type FailureType,
   type FillStep,
+  type HoverStep,
   type FillValue,
+  type InputReference,
   type ListField,
   type LocatorContext,
   type LocatorDefinition,
@@ -82,7 +91,9 @@ export {
   type RunEvent,
   type RunEventType,
   type SelectStep,
+  type SelectValue,
   type Step,
   type StepSafety,
   type StepValue,
+  type UploadStep,
 } from "./types.js";

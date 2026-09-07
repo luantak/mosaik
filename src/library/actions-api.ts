@@ -15,13 +15,16 @@ export {
   type InferActionType,
 } from "../capabilities/schema.js";
 export {
+  back,
   click,
   css,
+  drag,
   extractList,
   extractText,
   fill,
   form,
   hrefField,
+  hover,
   inputRef,
   label,
   landmark,
@@ -32,6 +35,7 @@ export {
   testId,
   text,
   textField,
+  upload,
   urlField,
 } from "../core/dsl.js";
 

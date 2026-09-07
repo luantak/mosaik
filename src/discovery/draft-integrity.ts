@@ -99,7 +99,11 @@ export function validateDraftIntegrity(input: {
         message: "external-side-effect steps are not allowed",
       });
     }
-    if ((step.type === "fill" || step.type === "select") && isStepValue(step.value)) {
+    if (
+      (step.type === "fill" || step.type === "select") &&
+      !Array.isArray(step.value) &&
+      isStepValue(step.value)
+    ) {
       if (step.value.kind === "input" && !(step.value.key in inputs)) {
         errors.push({
           type: "unknown-input-reference",

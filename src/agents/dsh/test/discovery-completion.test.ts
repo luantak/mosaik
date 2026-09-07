@@ -4,8 +4,20 @@ import {
   canCompleteFromDiscovery,
   discoveryHasPerformedMutations,
 } from "../discovery-completion.js";
-import { defineAction, string } from "../../../capabilities/index.js";
-import { click, extractText, navigate, role } from "../../../core/index.js";
+import { array, defineAction, string } from "../../../capabilities/index.js";
+import {
+  back,
+  click,
+  drag,
+  extractText,
+  hover,
+  inputRef,
+  navigate,
+  role,
+  select,
+  testId,
+  upload,
+} from "../../../core/index.js";
 const read = defineAction({
   id: "site.read",
   siteId: "example.com",
@@ -26,7 +38,7 @@ test("simple observed reading does not need a automation replay", () => {
   );
 });
 
-test("simple read-only navigation does not replay after discovery", () => {
+test("simple read-only navigation requires an exact discovery receipt", () => {
   const open = defineAction({
     id: "site.open",
     siteId: "example.com",
@@ -35,10 +47,44 @@ test("simple read-only navigation does not replay after discovery", () => {
     safety: "read-only",
     steps: [navigate({ id: "open", url: "https://example.com/editor", safety: "read-only" })],
   });
+  const source = "export default defineAutomation(async () => {await openEditor();});";
+  assert.equal(canCompleteFromDiscovery(source, [open]), false);
   assert.equal(
     canCompleteFromDiscovery(
-      "export default defineAutomation(async () => {await openEditor();});",
+      source,
       [open],
+      [
+        {
+          name: open.name,
+          performedOperations: [{ type: "navigate", url: "https://example.com/editor" }],
+        },
+      ],
+    ),
+    true,
+  );
+});
+
+test("read-only hover requires exact discovery receipts", () => {
+  const inspect = defineAction({
+    id: "site.inspect",
+    siteId: "example.com",
+    name: "inspectMenu",
+    description: "Inspect a menu card",
+    safety: "read-only",
+    steps: [hover({ id: "hover", locator: testId("menu"), safety: "read-only" })],
+  });
+  const source = "export default defineAutomation(async () => {await inspectMenu();});";
+  assert.equal(canCompleteFromDiscovery(source, [inspect]), false);
+  assert.equal(
+    canCompleteFromDiscovery(
+      source,
+      [inspect],
+      [
+        {
+          name: inspect.name,
+          performedOperations: [{ type: "hover", locator: testId("menu") }],
+        },
+      ],
     ),
     true,
   );
@@ -64,6 +110,14 @@ test("simple read-only link paths do not replay after discovery", () => {
     canCompleteFromDiscovery(
       "export default defineAutomation(async () => {await openEditor();});",
       [open],
+      [
+        {
+          name: open.name,
+          performedOperations: open.implementation.steps.map((step) =>
+            step.type === "click" ? { type: "click", locator: step.locator } : undefined,
+          ),
+        },
+      ],
     ),
     true,
   );
@@ -224,6 +278,48 @@ test("observed fills match their actual values without a automation replay", () 
   );
 });
 
+test("an observed native multi-select matches literal string-array arguments", () => {
+  const action = defineAction({
+    id: "site.regions",
+    siteId: "example.com",
+    name: "selectRegions",
+    description: "Select regions",
+    safety: "browser-local",
+    inputs: { regions: array(string()) },
+    steps: [
+      select({
+        id: "regions",
+        locator: testId("regions"),
+        value: inputRef("regions"),
+        safety: "browser-local",
+      }),
+    ],
+  });
+  const regions = ["eu", "apac"];
+  const receipt = {
+    name: action.name,
+    inputs: { regions },
+    performedOperations: [{ type: "select", locator: testId("regions"), value: regions }],
+  };
+
+  assert.equal(
+    canCompleteFromDiscovery(
+      'export default defineAutomation(async () => {await selectRegions({regions:["eu","apac"]});});',
+      [action],
+      [receipt],
+    ),
+    true,
+  );
+  assert.equal(
+    canCompleteFromDiscovery(
+      'export default defineAutomation(async () => {await selectRegions({regions:["eu",input.region]});});',
+      [action],
+      [receipt],
+    ),
+    false,
+  );
+});
+
 test("setup clicks do not force replay, but duplicate saved mutations cannot be hidden", () => {
   const operations = create.implementation.steps.map((step) => ({
     type: "click",
@@ -292,6 +388,109 @@ test("mismatched discovery receipts prevent replay of already performed edits", 
     discoveryHasPerformedMutations(
       [read],
       [{ name: read.name, performedOperations: [{ type: "click" }] }],
+    ),
+    false,
+  );
+});
+
+test("observed browser interactions complete from exact discovery evidence", () => {
+  const action = defineAction({
+    id: "site.interact",
+    siteId: "example.com",
+    name: "interact",
+    description: "Use persisted browser interactions",
+    safety: "browser-local",
+    steps: [
+      back({ id: "back", safety: "browser-local" }),
+      hover({ id: "hover", locator: testId("menu"), safety: "read-only" }),
+      drag({
+        id: "drag",
+        source: testId("card"),
+        target: testId("column"),
+        safety: "browser-local",
+      }),
+    ],
+  });
+  assert.equal(
+    canCompleteFromDiscovery(
+      "export default defineAutomation(async () => {await interact({});});",
+      [action],
+      [
+        {
+          name: action.name,
+          performedOperations: [
+            { type: "back" },
+            { type: "hover", locator: testId("menu") },
+            { type: "drag", locator: testId("card"), target: testId("column") },
+          ],
+        },
+      ],
+    ),
+    true,
+  );
+});
+
+test("an observed input-backed upload completes without replay", () => {
+  const action = defineAction({
+    id: "site.upload",
+    siteId: "example.com",
+    name: "uploadReport",
+    description: "Upload a report",
+    safety: "external-side-effect",
+    inputs: { path: string() },
+    steps: [
+      upload({
+        id: "upload",
+        locator: role("button", { name: "Report" }),
+        file: inputRef("path"),
+        safety: "external-side-effect",
+      }),
+    ],
+  });
+  const path = "/private/discovery-report.txt";
+  assert.equal(
+    canCompleteFromDiscovery(
+      `export default defineAutomation(async () => {await uploadReport({path:${JSON.stringify(path)}});});`,
+      [action],
+      [
+        {
+          name: action.name,
+          inputs: { path },
+          performedOperations: [
+            { type: "upload", locator: role("button", { name: "Report" }), file: path },
+          ],
+        },
+      ],
+    ),
+    true,
+  );
+});
+
+test("external click actions remain outside upload evidence reuse", () => {
+  const action = defineAction({
+    id: "site.purchase",
+    siteId: "example.com",
+    name: "purchase",
+    description: "Purchase an item",
+    safety: "external-side-effect",
+    steps: [
+      click({
+        id: "purchase",
+        locator: role("button", { name: "Purchase" }),
+        safety: "external-side-effect",
+      }),
+    ],
+  });
+  assert.equal(
+    canCompleteFromDiscovery(
+      "export default defineAutomation(async () => {await purchase({});});",
+      [action],
+      [
+        {
+          name: action.name,
+          performedOperations: [{ type: "click", locator: role("button", { name: "Purchase" }) }],
+        },
+      ],
     ),
     false,
   );

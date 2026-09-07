@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "vitest";
 import { form, label, role } from "../../core/index.js";
 import { startFixtureServer, withBrowser } from "../../runtime/index.js";
@@ -38,6 +40,64 @@ test("exploration does not write draft steps", async () => {
     });
   } finally {
     await fixture.close();
+  }
+});
+
+test("exploration exposes each supported browser interaction", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mosaik-discovery-interactions-"));
+  const file = join(directory, "upload.txt");
+  await writeFile(file, "uploaded");
+  try {
+    await withBrowser(async (browser) => {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <button id="hover">Hover</button><div id="source" draggable="true">Source</div><div id="target">Target</div>
+        <select id="choices" multiple><option value="one">One</option><option value="two">Two</option></select>
+        <input id="file" type="file"><div style="height:900px"></div><div id="bottom">Bottom</div>
+        <script>target.ondragover=e=>e.preventDefault();target.ondrop=e=>{e.preventDefault();target.textContent="Dropped"}</script>
+      `);
+      const { tools, close } = createDiscoveryTools(browser, checkoutRequest("about:blank"), {
+        page,
+      });
+      try {
+        assert.equal(
+          (await tools.exploreHover({ locator: { strategy: "css", selector: "#hover" } })).ok,
+          true,
+        );
+        assert.equal(
+          (
+            await tools.exploreDrag({
+              source: { strategy: "css", selector: "#source" },
+              target: { strategy: "css", selector: "#target" },
+            })
+          ).ok,
+          true,
+        );
+        assert.equal(
+          (
+            await tools.exploreSelect({
+              locator: { strategy: "css", selector: "#choices" },
+              value: ["one", "two"],
+            })
+          ).ok,
+          true,
+        );
+        assert.equal(
+          (
+            await tools.exploreUpload({
+              locator: { strategy: "css", selector: "#file" },
+              file,
+            })
+          ).ok,
+          true,
+        );
+      } finally {
+        await close();
+        await page.context().close();
+      }
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

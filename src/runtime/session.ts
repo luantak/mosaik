@@ -47,6 +47,56 @@ export const MOSAIK_BROWSER_ENV = "MOSAIK_BROWSER";
 export const MOSAIK_CAMOUFOX_OPTIONS_ENV = "MOSAIK_CAMOUFOX_OPTIONS";
 export const DEFAULT_REMOTE_STEP_TIMEOUT_MS = 5_000;
 const safelyHandledDialogPages = new WeakSet<Page>();
+const pendingDialogResponses = new WeakMap<
+  Page,
+  {
+    action: "accept" | "dismiss";
+    promptText?: string;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }
+>();
+
+class DialogResponseAfterOperationError extends Error {}
+
+export function wasDialogOperationPerformed(error: unknown): boolean {
+  return error instanceof DialogResponseAfterOperationError;
+}
+
+export async function withDialogResponse<T>(
+  page: Page,
+  response: { action: "accept" | "dismiss"; promptText?: string },
+  timeoutMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  installSafeDialogHandler(page);
+  if (pendingDialogResponses.has(page)) throw new Error("A dialog response is already pending");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const handled = new Promise<void>((resolve, reject) => {
+    pendingDialogResponses.set(page, { ...response, resolve, reject });
+  });
+  const settlementTimeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(new DialogResponseAfterOperationError("Expected JavaScript dialog did not open")),
+      timeoutMs,
+    );
+  });
+  try {
+    const handledResponse = handled.catch((error) => {
+      throw new DialogResponseAfterOperationError(String(error), { cause: error });
+    });
+    return await Promise.race([
+      Promise.all([Promise.resolve().then(operation), handledResponse]).then(
+        ([operationResult]) => operationResult,
+      ),
+      settlementTimeout,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    pendingDialogResponses.delete(page);
+  }
+}
 
 export async function openBrowserSession(
   options: BrowserSessionOptions = {},
@@ -337,6 +387,14 @@ function installSafeDialogHandler(page: Page): void {
   page.on("dialog", (dialog) => {
     // Multiple Playwright connections receive the same CDP dialog event. They
     // may race, so the losing connection must tolerate "No dialog is showing".
+    const pending = pendingDialogResponses.get(page);
+    if (pending !== undefined) {
+      pendingDialogResponses.delete(page);
+      const handled =
+        pending.action === "accept" ? dialog.accept(pending.promptText) : dialog.dismiss();
+      void handled.then(pending.resolve, pending.reject);
+      return;
+    }
     const handled = dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss();
     void handled.catch(() => undefined);
   });

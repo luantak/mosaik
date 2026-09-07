@@ -30,6 +30,14 @@ const selectCountry: Step = {
   value: "DE",
 };
 
+const uploadReport: Step = {
+  id: "report",
+  type: "upload",
+  safety: "external-side-effect",
+  locator: { strategy: "label", label: "Report" },
+  file: { kind: "input", key: "report" },
+};
+
 test("incompatible roles are rejected with an explicit reason", () => {
   assert.deepEqual(assessRoleCompatibility(clickContinue, "textbox"), {
     compatible: false,
@@ -43,6 +51,10 @@ test("incompatible roles are rejected with an explicit reason", () => {
     compatible: false,
     reasons: ["role-mismatch: combobox -> textbox"],
   });
+  assert.deepEqual(assessRoleCompatibility(uploadReport, "textbox"), {
+    compatible: false,
+    reasons: ["role-mismatch: button -> textbox"],
+  });
 });
 
 test("same-role and equivalent click roles stay eligible", () => {
@@ -51,6 +63,7 @@ test("same-role and equivalent click roles stay eligible", () => {
   assert.equal(assessRoleCompatibility(fillEmail, "textbox").compatible, true);
   assert.equal(assessRoleCompatibility(fillEmail, "searchbox").compatible, true);
   assert.equal(assessRoleCompatibility(selectCountry, "combobox").compatible, true);
+  assert.equal(assessRoleCompatibility(uploadReport, "button").compatible, true);
 });
 
 test("exact identity rejects substring-only names", () => {

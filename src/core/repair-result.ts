@@ -122,6 +122,7 @@ export function patchCompatibleWithStep(step: Step, patch: AutomationPatch): boo
   if (step.type === "fill") return locator.role === "textbox" || locator.role === "searchbox";
   if (step.type === "select") return locator.role === "combobox" || locator.role === "listbox";
   if (step.type === "extract-text" || step.type === "extract-list") return true;
+  if (step.type === "drag" || step.type === "hover" || step.type === "upload") return true;
   return false;
 }
 

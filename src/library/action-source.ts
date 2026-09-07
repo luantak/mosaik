@@ -3,13 +3,16 @@ import { defineAction } from "../capabilities/define.js";
 import { array, boolean, number, object, optional, string } from "../capabilities/schema.js";
 import type { ActionSchema, ActionType, SiteActionDefinition } from "../capabilities/types.js";
 import {
+  back,
   click,
   css,
+  drag,
   extractList,
   extractText,
   fill,
   form,
   hrefField,
+  hover,
   inputRef,
   label,
   landmark,
@@ -20,6 +23,7 @@ import {
   testId,
   text,
   textField,
+  upload,
   urlField,
 } from "./actions-api.js";
 import type {
@@ -27,6 +31,7 @@ import type {
   ListField,
   LocatorDefinition,
   LocatorScope,
+  SelectValue,
   Step,
   StepValue,
 } from "../core/types.js";
@@ -34,14 +39,17 @@ import { stripAutomationTypes } from "../automations/typescript.js";
 
 type EmitSymbol =
   | "array"
+  | "back"
   | "boolean"
   | "click"
   | "css"
+  | "drag"
   | "extractList"
   | "extractText"
   | "fill"
   | "form"
   | "hrefField"
+  | "hover"
   | "inputRef"
   | "label"
   | "landmark"
@@ -56,6 +64,7 @@ type EmitSymbol =
   | "testId"
   | "text"
   | "textField"
+  | "upload"
   | "urlField";
 
 export function emitActionSource(action: SiteActionDefinition): string {
@@ -116,16 +125,19 @@ export function parseActionSource(source: string): SiteActionDefinition {
   };
 
   const context = createContext({
+    back,
     defineAction: sandboxDefineAction,
     array,
     boolean,
     click,
     css,
+    drag,
     extractList,
     extractText,
     fill,
     form,
     hrefField,
+    hover,
     inputRef,
     label,
     landmark,
@@ -140,6 +152,7 @@ export function parseActionSource(source: string): SiteActionDefinition {
     testId,
     text,
     textField,
+    upload,
     urlField,
   });
   try {
@@ -202,15 +215,27 @@ function emitStep(step: Step, used: Set<EmitSymbol>): string {
   )
     return JSON.stringify(step);
   switch (step.type) {
+    case "back":
+      used.add("back");
+      return `back({ id: ${JSON.stringify(step.id)}, safety: ${JSON.stringify(step.safety)} })`;
     case "click":
       used.add("click");
-      return `click({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, safety: ${JSON.stringify(step.safety)} })`;
+      return `click({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, safety: ${JSON.stringify(step.safety)}${emitOptionalProperties(step, ["button", "clickCount", "modifiers", "dialog"])} })`;
+    case "drag":
+      used.add("drag");
+      return `drag({ id: ${JSON.stringify(step.id)}, source: ${emitLocator(step.locator, used)}, target: ${emitLocator(step.target, used)}, safety: ${JSON.stringify(step.safety)} })`;
+    case "hover":
+      used.add("hover");
+      return `hover({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, safety: ${JSON.stringify(step.safety)} })`;
     case "fill":
       used.add("fill");
       return `fill({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, value: ${emitFillValue(step.value, used)}, safety: ${JSON.stringify(step.safety)} })`;
     case "select":
       used.add("select");
-      return `select({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, value: ${emitFillValue(step.value, used)}, safety: ${JSON.stringify(step.safety)} })`;
+      return `select({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, value: ${emitSelectValue(step.value, used)}, safety: ${JSON.stringify(step.safety)} })`;
+    case "upload":
+      used.add("upload");
+      return `upload({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, file: ${emitFillValue(step.file, used)}, safety: ${JSON.stringify(step.safety)} })`;
     case "navigate":
       used.add("navigate");
       return `navigate({ id: ${JSON.stringify(step.id)}, url: ${emitFillValue(step.url, used)}, safety: ${JSON.stringify(step.safety)} })`;
@@ -221,6 +246,18 @@ function emitStep(step: Step, used: Set<EmitSymbol>): string {
       used.add("extractList");
       return `extractList({ id: ${JSON.stringify(step.id)}, locator: ${emitLocator(step.locator, used)}, output: ${JSON.stringify(step.output)}, fields: ${emitFields(step.fields, used)}, safety: ${JSON.stringify(step.safety)} })`;
   }
+}
+
+function emitOptionalProperties(value: object, keys: string[]): string {
+  const record = value as Record<string, unknown>;
+  return keys
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `, ${key}: ${JSON.stringify(record[key])}`)
+    .join("");
+}
+
+function emitSelectValue(value: SelectValue, used: Set<EmitSymbol>): string {
+  return Array.isArray(value) ? JSON.stringify(value) : emitFillValue(value, used);
 }
 
 function emitFillValue(value: FillValue, used: Set<EmitSymbol>): string {

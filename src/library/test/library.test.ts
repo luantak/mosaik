@@ -4,7 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 import { defineAction, string, array, object } from "../../capabilities/index.js";
-import { click, extractList, label, role, urlField } from "../actions-api.js";
+import {
+  back,
+  click,
+  drag,
+  extractList,
+  hover,
+  inputRef,
+  label,
+  role,
+  select,
+  upload,
+  urlField,
+} from "../actions-api.js";
 import { emitActionSource, parseActionSource } from "../action-source.js";
 import { parseAutomationImports, referencedImportedActions } from "../automation-imports.js";
 import { actionSourcePath, automationImportPath, automationSourcePath } from "../paths.js";
@@ -41,6 +53,51 @@ test("action source round-trips through emit and parse", () => {
   assert.match(source, /import \{\n  defineAction,\n  click,\n  role,\n  string,\n\}/);
   assert.doesNotMatch(source, /\bextractList\b/);
   assert.doesNotMatch(source, /\boptional\b/);
+});
+
+test("action source round-trips every browser interaction option", () => {
+  const source = role("button", { name: "Source" });
+  const target = role("region", { name: "Target" });
+  const action = defineAction({
+    id: "app.interactions",
+    siteId: "app.example.com",
+    name: "useInteractions",
+    description: "Exercise browser interactions",
+    safety: "external-side-effect",
+    inputs: { file: string(), choices: array(string()), prompt: string() },
+    outputs: {},
+    steps: [
+      hover({ id: "hover", locator: source, safety: "read-only" }),
+      drag({ id: "drag", source, target, safety: "browser-local" }),
+      click({
+        id: "click",
+        locator: source,
+        button: "right",
+        clickCount: 2,
+        modifiers: ["Control", "Shift"],
+        dialog: { action: "accept", promptText: inputRef("prompt") },
+        safety: "browser-local",
+      }),
+      select({
+        id: "select",
+        locator: label("Choices"),
+        value: inputRef("choices"),
+        safety: "browser-local",
+      }),
+      upload({
+        id: "upload",
+        locator: label("File"),
+        file: inputRef("file"),
+        safety: "external-side-effect",
+      }),
+      back({ id: "back", safety: "browser-local" }),
+    ],
+  });
+
+  const emitted = emitActionSource(action);
+  assert.deepEqual(parseActionSource(emitted).implementation, action.implementation);
+  for (const symbol of ["back", "drag", "hover", "upload"])
+    assert.match(emitted, new RegExp(`\\b${symbol}\\b`));
 });
 
 test("defineAction values are typed as callable", () => {

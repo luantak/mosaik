@@ -153,6 +153,7 @@ export function createPlaywrightHost(
             completedSteps.push(step.id);
             continue;
           }
+          if (outcome.actionPerformed) throw new HostActionError(outcome.message, failure);
           if (options.repair && !attempted.has(step.id)) {
             attempted.add(step.id);
             const next = await options.repair({
@@ -199,7 +200,13 @@ export function createPlaywrightHost(
             before,
           );
         } catch (error) {
-          const type = implementation.steps.some((step) => step.type === "click")
+          const type = implementation.steps.some(
+            (step) =>
+              step.type === "click" ||
+              step.type === "upload" ||
+              step.type === "drag" ||
+              step.type === "back",
+          )
             ? "uncertain-outcome"
             : "condition-failed";
           throw new HostActionError(

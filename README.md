@@ -117,14 +117,17 @@ try {
 ```
 
 Set `humanize: true` to use curved `ghost-cursor` mouse paths, paced scrolling,
-variable typing, and occasional cursor movement during browser waits in place
-of direct Playwright interactions. The generated automation stays unchanged.
-This is Mosaik runtime humanization, not Camoufox-native cursor motion
-(`camoufox.humanize`):
+variable typing, humanized hover and drag/drop, and occasional cursor movement
+during browser waits in place of direct Playwright interactions. The generated
+automation stays unchanged. This is Mosaik runtime humanization, not Camoufox-native
+cursor motion (`camoufox.humanize`):
 
 ```ts
 const mosaik = await createMosaik({ headless: false, humanize: true });
 ```
+
+Browser actions also support Back, one-file uploads, native
+multi-selects, click buttons/count/modifiers, and click-associated JavaScript dialog responses.
 
 For the CLI, pass `--humanize` for one run or save it as the project default:
 
