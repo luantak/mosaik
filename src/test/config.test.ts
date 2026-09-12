@@ -124,6 +124,22 @@ test("project config saves defaults and longest matching Kernel domains atomical
       assert.equal((await stat(dataDirectory)).mode & 0o777, 0o700);
       assert.equal((await stat(join(dataDirectory, "config.json"))).mode & 0o777, 0o600);
     }
+    await saveDefaultBrowser(dataDirectory, "camoufox");
+    assert.equal((await loadMosaikConfig(dataDirectory)).browser, "camoufox");
+    await writeFile(
+      join(dataDirectory, "config.json"),
+      JSON.stringify({
+        version: 1,
+        browser: "camoufox",
+        camoufox: { os: "windows", locale: "en-US", humanize: true },
+      }),
+      "utf8",
+    );
+    assert.deepEqual(await loadMosaikConfig(dataDirectory), {
+      version: 1,
+      browser: "camoufox",
+      camoufox: { os: "windows", locale: "en-US", humanize: true },
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -202,6 +218,12 @@ test("malformed project config names its file", async () => {
     await mkdir(dataDirectory, { recursive: true });
     await writeFile(join(dataDirectory, "config.json"), '{"version":2}', "utf8");
     await assert.rejects(() => loadMosaikConfig(dataDirectory), /config\.json.*version/);
+    await writeFile(
+      join(dataDirectory, "config.json"),
+      '{"version":1,"browser":"camoufox","camoufox":{"os":"android"}}',
+      "utf8",
+    );
+    await assert.rejects(() => loadMosaikConfig(dataDirectory), /camoufox\.os/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -24,9 +24,10 @@ import { openBrowserSession } from "../runtime/session.js";
 import { authAutomationId, buildAuthAutomation } from "./automation.js";
 import { loadProfileAuthAutomation } from "./automation-store.js";
 import { parseLoginCliArgs, LOGIN_CLI_HELP, type LoginCliOptions } from "./cli-options.js";
+import type { CamoufoxOptions } from "../camoufox/options.js";
 import { createProfileCredentialPrompter, profileCredentialsPath } from "./credentials.js";
 import { loginWithBrowserSession } from "./login.js";
-import { localBrowserProfileDirectory } from "./profile.js";
+import { camoufoxBrowserProfileDirectory, localBrowserProfileDirectory } from "./profile.js";
 import { describeAuthSuccessCondition, matchesAuthSuccessCondition } from "./success.js";
 import { createTerminalCredentialPrompter } from "./terminal.js";
 
@@ -53,12 +54,20 @@ export async function runLoginCommand(
   ) {
     throw new Error("Kernel login options require --browser kernel or a Kernel project default");
   }
-  return runLocalLoginCommand(options, workingDirectory);
+  const resolved = { ...options, browser };
+  if (!resolved.profileExplicit && browser === "camoufox") {
+    resolved.profileDirectory = camoufoxBrowserProfileDirectory(
+      resolved.dataDirectory,
+      resolved.loginUrl,
+    );
+  }
+  return runLocalLoginCommand(resolved, workingDirectory, config.camoufox);
 }
 
 async function runLocalLoginCommand(
   options: LoginCliOptions,
   workingDirectory: string,
+  camoufox?: CamoufoxOptions,
 ): Promise<number> {
   const repositoryRoot = options.dataDirectory;
   const reporter = new TaskReporter();
@@ -75,15 +84,18 @@ async function runLocalLoginCommand(
       savedAutomation = buildAuthAutomation(options.loginUrl, [], legacyCondition);
     }
   }
+  const browser = options.browser === "camoufox" ? "camoufox" : "local";
   const session = await reporter.task(
     {
-      active: `Opening Chromium for ${new URL(options.loginUrl).host}`,
-      done: "Chromium ready",
+      active: `Opening ${browser === "camoufox" ? "Camoufox" : "Chromium"} for ${new URL(options.loginUrl).host}`,
+      done: browser === "camoufox" ? "Camoufox ready" : "Chromium ready",
     },
     () =>
       openBrowserSession({
         profileDirectory: options.profileDirectory,
         headless: options.headless,
+        browser,
+        ...(camoufox === undefined ? {} : { camoufox }),
       }),
   );
   try {

@@ -70,7 +70,7 @@ ${theme.bold("Commands")}
   ${theme.accent("actions")}   Inspect learned site actions
   ${theme.accent("pull")}      Pull learning from the remote library
   ${theme.accent("reset")}     Delete learned actions and automations
-  ${theme.accent("setup")}     Install the Chromium browser
+  ${theme.accent("setup")}     Install Chromium and Camoufox
   ${theme.accent("doctor")}    Check that Mosaik is ready
   ${theme.accent("kernel")}    Deploy this project's site library
 

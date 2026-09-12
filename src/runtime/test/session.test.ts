@@ -154,6 +154,24 @@ test("shared-context sessions retain authentication state between tasks", async 
   }
 });
 
+test("browser session environment exposes Camoufox options instead of a CDP endpoint", () => {
+  assert.deepEqual(
+    browserSessionEnvironment({
+      kind: "ephemeral",
+      provider: "camoufox",
+      camoufox: { os: "linux", humanize: true },
+      withPage: async <T>(): Promise<T> => {
+        throw new Error("not used");
+      },
+      close: async () => {},
+    }),
+    {
+      MOSAIK_BROWSER: "camoufox",
+      MOSAIK_CAMOUFOX_OPTIONS: JSON.stringify({ os: "linux", humanize: true }),
+    },
+  );
+});
+
 test("browser session environment exposes only an explicit CDP endpoint", () => {
   assert.deepEqual(
     browserSessionEnvironment({

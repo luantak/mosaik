@@ -23,12 +23,14 @@ export class BrowserResponseCache {
   readonly #inFlight = new Set<string>();
   readonly #loads = new Map<string, Promise<CaptureResult>>();
   readonly #sizes = new Map<string, number>();
+  readonly #pendingCaptures = new Map<Request, (error: Error) => void>();
   readonly #context: BrowserContext;
   readonly #page: Page;
   readonly #networkOrigin: string | undefined;
   readonly #onResponse: (response: Response) => void;
   readonly #onRequest: (request: Request) => void;
   readonly #onRequestSettled: (request: Request) => void;
+  readonly #onRequestFailed: (request: Request) => void;
   #capturedBytes = 0;
   #closed = false;
 
@@ -45,9 +47,15 @@ export class BrowserResponseCache {
       if (url !== undefined) this.#inFlight.delete(normalizedResponseUrl(url));
     };
     this.#onResponse = (response) => this.#remember(response);
+    this.#onRequestFailed = (request) => {
+      this.#onRequestSettled(request);
+      this.#pendingCaptures.get(request)?.(
+        new ResponseBodyUnavailableError("Browser resource request failed"),
+      );
+    };
     this.#page.on("request", this.#onRequest);
     this.#page.on("requestfinished", this.#onRequestSettled);
-    this.#page.on("requestfailed", this.#onRequestSettled);
+    this.#page.on("requestfailed", this.#onRequestFailed);
     this.#page.on("response", this.#onResponse);
   }
 
@@ -76,6 +84,7 @@ export class BrowserResponseCache {
     if (options.reuseOnly === true) {
       throw new Error(`Response was not loaded by the browser: ${url.href}`);
     }
+    if (this.#closed) throw new Error("Browser response cache is closed");
     const allowedOrigin = this.#allowedOrigin();
     if (allowedOrigin !== undefined && url.origin !== allowedOrigin) {
       throw new Error(
@@ -107,8 +116,12 @@ export class BrowserResponseCache {
     this.#closed = true;
     this.#page.off("request", this.#onRequest);
     this.#page.off("requestfinished", this.#onRequestSettled);
-    this.#page.off("requestfailed", this.#onRequestSettled);
+    this.#page.off("requestfailed", this.#onRequestFailed);
     this.#page.off("response", this.#onResponse);
+    for (const reject of this.#pendingCaptures.values()) {
+      reject(new ResponseBodyUnavailableError("Browser response cache is closed"));
+    }
+    this.#pendingCaptures.clear();
     this.#entries.clear();
     this.#sizes.clear();
     this.#loads.clear();
@@ -138,14 +151,22 @@ export class BrowserResponseCache {
       throw new Error(`Response returned HTTP ${status}: ${response.url()}`);
     }
     let body: Buffer;
+    const request = response.request();
+    const failed = new Promise<never>((_, reject) => {
+      this.#pendingCaptures.set(request, reject);
+    });
     try {
-      const failure = await response.finished();
-      if (failure !== null) throw failure;
-      body = await response.body();
+      body = await withResponseTimeout(async () => {
+        const failure = await response.finished();
+        if (failure !== null) throw failure;
+        return response.body();
+      }, failed);
     } catch (error) {
       throw new ResponseBodyUnavailableError(
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      this.#pendingCaptures.delete(request);
     }
     this.#validateSize(body.byteLength, response.url());
     return {
@@ -190,6 +211,10 @@ export class BrowserResponseCache {
     while (Date.now() < deadline) {
       const pending = this.#entries.get(key);
       if (pending !== undefined) return pending;
+      // Navigation can cancel a resource before response headers arrive. Once
+      // it settles, there is no reason to keep waiting the full in-flight grace.
+      if (this.#closed) throw new Error("Browser response cache is closed");
+      if (timeoutMs === IN_FLIGHT_RESPONSE_TIMEOUT_MS && !this.#inFlight.has(key)) return;
       await timeout(10);
     }
     return this.#entries.get(key);
@@ -272,4 +297,22 @@ function unwrapCapture(result: CaptureResult): CapturedBrowserResponse {
 
 function timeout(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withResponseTimeout<T>(read: () => Promise<T>, failed: Promise<never>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read(),
+      failed,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ResponseBodyUnavailableError("Timed out reading browser response body")),
+          IN_FLIGHT_RESPONSE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

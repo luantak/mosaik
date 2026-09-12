@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { localBrowserProfileDirectory } from "./profile.js";
+import { isBrowserProvider, type BrowserProvider } from "../config.js";
+import { camoufoxBrowserProfileDirectory, localBrowserProfileDirectory } from "./profile.js";
 
 export interface LoginCliOptions {
   loginUrl: string;
   dataDirectory: string;
   profileDirectory: string;
   headless: boolean;
-  browser?: "local" | "kernel";
+  browser?: BrowserProvider;
+  profileExplicit: boolean;
   kernelProfile?: string;
   domain?: string;
   allowedDomains?: string[];
@@ -29,7 +31,8 @@ export const LOGIN_CLI_HELP = `Usage:
 Options:
   -u, --url <url>                Login page URL
       --data-dir <directory>     Mosaik data directory, default .mosaik
-      --browser <local|kernel>    Browser provider
+      --browser <local|camoufox|kernel>
+                                 Browser provider
       --kernel-profile <name>     Kernel profile name override
       --domain <domain>           Kernel target domain, default login URL host
       --allowed-domain <domain>   Extra Kernel identity-provider domain, repeatable
@@ -92,17 +95,20 @@ export function parseLoginCliArgs(
   if (loginUrl === undefined) throw new Error("A login URL is required");
   const parsedLoginUrl = webUrl(loginUrl, "login URL");
   const browser = parsed.values.browser;
-  if (browser !== undefined && browser !== "local" && browser !== "kernel") {
-    throw new Error('--browser must be "local" or "kernel"');
+  if (browser !== undefined && !isBrowserProvider(browser)) {
+    throw new Error('--browser must be "local", "camoufox", or "kernel"');
   }
-  if (parsed.values["kernel-profile"] !== undefined && browser === "local") {
+  if (
+    parsed.values["kernel-profile"] !== undefined &&
+    (browser === "local" || browser === "camoufox")
+  ) {
     throw new Error("--kernel-profile requires --browser kernel");
   }
   if (parsed.values.profile !== undefined && browser === "kernel") {
-    throw new Error("--profile is only available with --browser local");
+    throw new Error("--profile is only available with a local browser");
   }
   if (parsed.values["check-url"] !== undefined && browser === "kernel") {
-    throw new Error("--check-url is only available with --browser local");
+    throw new Error("--check-url is only available with a local browser");
   }
   if (
     (parsed.values["timeout-ms"] !== undefined ||
@@ -117,16 +123,19 @@ export function parseLoginCliArgs(
   const timeoutMs = positiveInteger(parsed.values["timeout-ms"] ?? "10000", "timeout-ms");
   const maxSteps = positiveInteger(parsed.values["max-steps"] ?? "5", "max-steps");
   const dataDirectory = resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik");
-  const profileDirectory =
-    parsed.values.profile === undefined
-      ? localBrowserProfileDirectory(dataDirectory, parsedLoginUrl.href)
-      : resolve(workingDirectory, parsed.values.profile);
+  const profileExplicit = parsed.values.profile !== undefined;
+  const profileDirectory = profileExplicit
+    ? resolve(workingDirectory, parsed.values.profile!)
+    : browser === "camoufox"
+      ? camoufoxBrowserProfileDirectory(dataDirectory, parsedLoginUrl.href)
+      : localBrowserProfileDirectory(dataDirectory, parsedLoginUrl.href);
   return {
     help: false,
     options: {
       loginUrl: parsedLoginUrl.href,
       dataDirectory,
       profileDirectory,
+      profileExplicit,
       headless: parsed.values.headless,
       ...(browser === undefined ? {} : { browser }),
       ...(parsed.values["kernel-profile"] === undefined

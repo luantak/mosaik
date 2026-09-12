@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { resolveLlmRoute } from "./agents/dsh/llm-route.js";
+import { isBrowserProvider, type BrowserProvider } from "./config.js";
 import { defaultPackageName } from "./init.js";
 
 export interface RunCliOptions {
@@ -11,7 +12,7 @@ export interface RunCliOptions {
   dataDirectory: string;
   headless: boolean;
   humanize?: boolean;
-  browser?: "local" | "kernel";
+  browser?: BrowserProvider;
   kernelStealth: boolean;
   kernelTimeoutSeconds: number;
   kernelProfile?: string;
@@ -83,7 +84,7 @@ Options:
       --model <model>           Composition and discovery model.
                                 Use gpt-5.6-luna after mosaik provider login.
                                 Codex models use Fast mode by default.
-      --browser <provider>      Browser provider: local or kernel
+      --browser <provider>      Browser provider: local, camoufox, or kernel
       --kernel-profile <name>   Kernel profile name to load and save
       --kernel-auth-connection <id>
                                  Authenticated Kernel connection to load
@@ -148,8 +149,8 @@ export function parseRunCliArgs(
   const startUrl = parseWebUrl(parsed.values.url, "start URL");
   const siteId = parsed.values.site?.trim() || startUrl.host;
   const browser = parsed.values.browser;
-  if (browser !== "local" && browser !== "kernel") {
-    if (browser !== undefined) throw new Error('--browser must be "local" or "kernel"');
+  if (browser !== undefined && !isBrowserProvider(browser)) {
+    throw new Error('--browser must be "local", "camoufox", or "kernel"');
   }
   if (
     parsed.values["kernel-auth-connection"] !== undefined &&
@@ -206,7 +207,7 @@ export function parseRunCliArgs(
 }
 
 export type ConfigCliOptions =
-  | { dataDirectory: string; setting: "browser"; browser: "local" | "kernel" }
+  | { dataDirectory: string; setting: "browser"; browser: BrowserProvider }
   | { dataDirectory: string; setting: "model"; model: string }
   | { dataDirectory: string; setting: "humanize"; value: boolean };
 
@@ -215,7 +216,7 @@ export type ConfigCliParseResult = { help: true } | { help: false; options: Conf
 export const CONFIG_CLI_HELP = `Set project-local Mosaik defaults.
 
 Usage:
-  mosaik config set browser <local|kernel> [options]
+  mosaik config set browser <local|camoufox|kernel> [options]
   mosaik config set model <model> [options]
   mosaik config set humanize <true|false> [options]
 
@@ -246,8 +247,8 @@ export function parseConfigCliArgs(
   if (parsed.values.help) return { help: true };
   const dataDirectory = resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik");
   if (setting === "browser") {
-    if (value !== "local" && value !== "kernel") {
-      throw new Error('browser must be "local" or "kernel"');
+    if (!isBrowserProvider(value)) {
+      throw new Error('browser must be "local", "camoufox", or "kernel"');
     }
     return { help: false, options: { setting: "browser", browser: value, dataDirectory } };
   }
@@ -266,7 +267,7 @@ export function parseConfigCliArgs(
     };
   }
   throw new Error(
-    "Usage: mosaik config set browser <local|kernel> | model <model> | humanize <true|false>",
+    "Usage: mosaik config set browser <local|camoufox|kernel> | model <model> | humanize <true|false>",
   );
 }
 
@@ -325,7 +326,7 @@ export interface DoctorCliOptions {
 }
 
 export const DOCTOR_CLI_HELP = `Check Node.js, the global command, DSH, bundled assets, Chromium,
-provider credentials, and the data directory.
+Camoufox, provider credentials, and the data directory.
 
 Usage:
   mosaik doctor [options]

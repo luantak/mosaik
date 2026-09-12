@@ -11,6 +11,7 @@ test("login CLI accepts a positional local URL and derives a private session pat
     loginUrl: "http://localhost:3000/login",
     dataDirectory: resolve("/project/.mosaik"),
     profileDirectory: resolve("/project/.mosaik/browser-profiles/localhost-3000"),
+    profileExplicit: false,
     headless: false,
     pause: false,
     timeoutMs: 10_000,
@@ -42,6 +43,7 @@ test("login CLI parses verification and runtime controls", () => {
     loginUrl: "https://dev.example.test/login",
     dataDirectory: resolve("/project/.mosaik"),
     profileDirectory: resolve("/project/profiles/dev"),
+    profileExplicit: true,
     checkUrl: "https://dev.example.test/settings",
     headless: true,
     pause: true,
@@ -79,6 +81,21 @@ test("login CLI rejects missing, non-web, and duplicate URLs", () => {
   assert.throws(
     () => parseLoginCliArgs(["http://localhost/login", "--max-steps", "0"]),
     /positive integer/,
+  );
+});
+
+test("login CLI derives a Camoufox profile root", () => {
+  const parsed = parseLoginCliArgs(
+    ["https://example.test/login", "--browser", "camoufox"],
+    "/project",
+  );
+  assert.equal(parsed.help, false);
+  if (parsed.help) return;
+  assert.equal(parsed.options.browser, "camoufox");
+  assert.equal(parsed.options.profileExplicit, false);
+  assert.equal(
+    parsed.options.profileDirectory,
+    resolve("/project/.mosaik/camoufox-profiles/example.test"),
   );
 });
 

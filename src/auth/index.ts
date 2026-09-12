@@ -11,7 +11,7 @@ export {
   profileCredentialsPath,
 } from "./credentials.js";
 export { loginWithBrowserSession } from "./login.js";
-export { localBrowserProfileDirectory } from "./profile.js";
+export { camoufoxBrowserProfileDirectory, localBrowserProfileDirectory } from "./profile.js";
 export { applySavedAuthentication, findAuthAutomationForUrl } from "./session.js";
 export { createTerminalCredentialPrompter } from "./terminal.js";
 export {

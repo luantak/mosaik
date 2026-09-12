@@ -106,6 +106,19 @@ test("run CLI accepts explicit IDs, model, and data directory", () => {
   assert.equal(parsed.options.json, true);
 });
 
+test("run CLI accepts Camoufox as a browser provider", () => {
+  const parsed = parseRunCliArgs([
+    "Search",
+    "--url",
+    "https://example.test",
+    "--browser",
+    "camoufox",
+  ]);
+  assert.equal(parsed.help, false);
+  if (parsed.help) return;
+  assert.equal(parsed.options.browser, "camoufox");
+});
+
 test("run CLI accepts Kernel browser settings", () => {
   const parsed = parseRunCliArgs([
     "Search",
@@ -185,12 +198,22 @@ test("run CLI help has no required arguments and invalid inputs fail early", () 
   );
   assert.throws(
     () => parseRunCliArgs(["Task", "--url", "https://example.test", "--browser", "remote"]),
-    /local.*kernel/,
+    /local.*camoufox.*kernel/,
   );
   assert.throws(
     () => parseRunCliArgs(["Task", "--url", "https://example.test", "--kernel-timeout", "9"]),
     /between 10 and 259200/,
   );
+});
+
+test("config CLI accepts Camoufox as the default browser", () => {
+  const parsed = parseConfigCliArgs(["set", "browser", "camoufox"], "/project");
+  assert.equal(parsed.help, false);
+  if (parsed.help) return;
+  assert.equal(parsed.options.setting, "browser");
+  assert.equal(parsed.options.browser, "camoufox");
+  assert.equal(parsed.options.dataDirectory, resolve("/project/.mosaik"));
+  assert.throws(() => parseConfigCliArgs(["set", "browser", "remote"]), /local.*camoufox.*kernel/);
 });
 
 test("actions and doctor CLI options resolve data paths from the workspace", () => {

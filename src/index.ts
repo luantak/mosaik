@@ -7,6 +7,7 @@ export { DshCapabilityCompositionAgent } from "./agents/dsh/composition-agent.js
 export { DshReusableActionDiscoveryAgent } from "./agents/dsh/action-agent.js";
 export { DshAuthSuccessAgent } from "./agents/dsh/auth-agent.js";
 export {
+  camoufoxBrowserProfileDirectory,
   authAutomationId,
   authAutomationStep,
   buildAuthAutomation,
@@ -44,6 +45,26 @@ export {
   type BrowserSessionOptions,
   type InteractiveBrowserSession,
 } from "./runtime/session.js";
+export {
+  CAMOUFOX_LAUNCH_OPTION_MAPPING,
+  defaultCamoufoxOptions,
+  hostCamoufoxOs,
+  openCamoufoxBrowserSession,
+  openCamoufoxInteractiveBrowserSession,
+  resolveCamoufoxOptions,
+  toCamoufoxLaunchOptions,
+  type CamoufoxBrowserSession,
+  type CamoufoxInteractiveBrowserSession,
+  type CamoufoxLaunchOptions,
+  type CamoufoxOptions,
+  type CamoufoxOs,
+} from "./camoufox/index.js";
+export {
+  BROWSER_PROVIDERS,
+  isBrowserProvider,
+  resolveMosaikBrowser,
+  type BrowserProvider,
+} from "./config.js";
 export {
   openKernelBrowserSession,
   type KernelBrowserSession,

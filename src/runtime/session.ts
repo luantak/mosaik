@@ -2,12 +2,15 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { chmod, mkdir, readFile } from "node:fs/promises";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import type { CamoufoxOptions } from "../camoufox/options.js";
 import { BrowserResponseCache, type CapturedBrowserResponse } from "./assets.js";
 import { PAGE_SIGNAL_INIT } from "./degraded.js";
 import { configurePageHumanization } from "./humanize.js";
 
 export interface BrowserSession {
   kind: "ephemeral" | "persistent";
+  provider?: "local" | "kernel" | "camoufox";
+  camoufox?: CamoufoxOptions;
   profileDirectory?: string;
   cdpEndpoint?: string;
   cdpTargetId?: string;
@@ -35,15 +38,23 @@ export interface BrowserSessionOptions {
   headless?: boolean;
   /** Humanize runtime input delivery without changing generated steps or saved source. */
   humanize?: boolean;
+  browser?: "local" | "camoufox";
+  camoufox?: CamoufoxOptions;
 }
 
 export const MOSAIK_CDP_WS_URL_ENV = "MOSAIK_CDP_WS_URL";
+export const MOSAIK_BROWSER_ENV = "MOSAIK_BROWSER";
+export const MOSAIK_CAMOUFOX_OPTIONS_ENV = "MOSAIK_CAMOUFOX_OPTIONS";
 export const DEFAULT_REMOTE_STEP_TIMEOUT_MS = 5_000;
 const safelyHandledDialogPages = new WeakSet<Page>();
 
 export async function openBrowserSession(
   options: BrowserSessionOptions = {},
 ): Promise<BrowserSession> {
+  if (options.browser === "camoufox") {
+    const { openCamoufoxBrowserSession } = await import("../camoufox/session.js");
+    return openCamoufoxBrowserSession(options);
+  }
   if (options.profileDirectory !== undefined) {
     return openInteractiveBrowserSession({
       startUrl: "about:blank",
@@ -65,7 +76,13 @@ export async function openInteractiveBrowserSession(options: {
   profileDirectory: string;
   headless?: boolean;
   humanize?: boolean;
+  browser?: "local" | "camoufox";
+  camoufox?: CamoufoxOptions;
 }): Promise<InteractiveBrowserSession> {
+  if (options.browser === "camoufox") {
+    const { openCamoufoxInteractiveBrowserSession } = await import("../camoufox/session.js");
+    return openCamoufoxInteractiveBrowserSession(options);
+  }
   await prepareProfileDirectory(options.profileDirectory);
   const context = await chromium.launchPersistentContext(options.profileDirectory, {
     headless: options.headless ?? false,
@@ -131,6 +148,10 @@ export function isBrowserSession(value: Browser | BrowserSession): value is Brow
 }
 
 export async function openAgentBrowser(): Promise<Browser> {
+  if (process.env[MOSAIK_BROWSER_ENV] === "camoufox") {
+    const { openCamoufoxAgentBrowser } = await import("../camoufox/session.js");
+    return openCamoufoxAgentBrowser();
+  }
   const endpoint = process.env[MOSAIK_CDP_WS_URL_ENV];
   return endpoint === undefined || endpoint.length === 0
     ? chromium.launch({ headless: true })
@@ -144,6 +165,12 @@ export async function connectBrowserSessionOverCdp(cdpEndpoint: string): Promise
 }
 
 export function browserSessionEnvironment(session: Browser | BrowserSession): NodeJS.ProcessEnv {
+  if (isBrowserSession(session) && session.provider === "camoufox") {
+    return {
+      [MOSAIK_BROWSER_ENV]: "camoufox",
+      [MOSAIK_CAMOUFOX_OPTIONS_ENV]: JSON.stringify(session.camoufox ?? {}),
+    };
+  }
   return isBrowserSession(session) && session.cdpEndpoint !== undefined
     ? {
         [MOSAIK_CDP_WS_URL_ENV]: session.cdpEndpoint,

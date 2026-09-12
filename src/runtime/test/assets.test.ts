@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import { chromium } from "playwright";
 import { BrowserResponseCache } from "../assets.js";
 import { startFixtureServer } from "../fixtures.js";
@@ -72,6 +72,7 @@ test("discarded response bodies fall back once while reuse-only and origin gates
     page.emit("response", {
       url: () => url,
       status: () => status,
+      request: () => ({}),
       finished: async () => null,
       body: async () => {
         throw new Error("Network.getResponseBody: No resource with given identifier found");
@@ -133,6 +134,7 @@ test("response cache replaces and evicts bytes without exhausting later download
     page.emit("response", {
       url: () => url,
       status: () => 200,
+      request: () => ({}),
       finished: async () => null,
       body: async () => bytes,
       headers: () => ({}),
@@ -159,6 +161,7 @@ test("response cache replaces and evicts bytes without exhausting later download
     page.emit("response", {
       url: () => "https://example.com/oversize",
       status: () => 200,
+      request: () => ({}),
       finished: async () => null,
       body: async () => Buffer.alloc(11 * 1024 * 1024),
       headers: () => ({}),
@@ -170,3 +173,98 @@ test("response cache replaces and evicts bytes without exhausting later download
     cache.close();
   }
 });
+
+for (const stalledPhase of [
+  "finished",
+  "body",
+  "before-response",
+  "failed-finished",
+  "failed-body",
+  "closed-body",
+] as const) {
+  test(`response cache recovers when a resource stalls at ${stalledPhase}`, async () => {
+    const { EventEmitter } = await import("node:events");
+    const page = new EventEmitter();
+    const url = "https://example.com/cover.jpg";
+    const bytes = Buffer.from("fallback bytes");
+    let requests = 0;
+    let finishCapture!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      finishCapture = resolve;
+    });
+    Object.assign(page, {
+      url: () => "https://example.com/",
+      context: () => ({
+        request: {
+          get: async () => {
+            requests++;
+            return {
+              ok: () => true,
+              url: () => url,
+              headers: () => ({}),
+              body: async () => bytes,
+              dispose: async () => {},
+            };
+          },
+        },
+      }),
+    });
+    vi.useFakeTimers();
+    const cache = new BrowserResponseCache(page as unknown as import("playwright").Page);
+    try {
+      const request = { url: () => url };
+      page.emit("request", request);
+      if (stalledPhase !== "before-response") {
+        page.emit("response", {
+          url: () => url,
+          status: () => 200,
+          request: () => request,
+          headers: () => ({}),
+          finished: async () => {
+            if (stalledPhase.endsWith("finished")) await stalled;
+            return null;
+          },
+          body: async () => {
+            if (stalledPhase.endsWith("body")) await stalled;
+            return Buffer.from("late bytes");
+          },
+        });
+      }
+      const reuse = assert.rejects(
+        cache.read(url, { reuseOnly: true }),
+        stalledPhase === "before-response"
+          ? /not loaded/
+          : stalledPhase.startsWith("failed-")
+            ? /request failed/
+            : stalledPhase === "closed-body"
+              ? /cache is closed/
+              : /Timed out/,
+      );
+      const reads = Promise.all([cache.read(url), cache.read(url)]);
+      if (stalledPhase === "closed-body") {
+        const rejected = assert.rejects(reads, /cache is closed/);
+        await vi.advanceTimersByTimeAsync(0);
+        cache.close();
+        await rejected;
+        await reuse;
+        assert.equal(requests, 0);
+        assert.equal(vi.getTimerCount(), 0);
+        return;
+      }
+      const cancelled = stalledPhase === "before-response" || stalledPhase.startsWith("failed-");
+      await vi.advanceTimersByTimeAsync(0);
+      if (cancelled) page.emit("requestfailed", request);
+      await vi.advanceTimersByTimeAsync(cancelled ? 10 : 5_000);
+      await reuse;
+      for (const response of await reads) assert.deepEqual(response.bytes, bytes);
+      assert.equal(requests, 1);
+      finishCapture();
+      await vi.advanceTimersByTimeAsync(0);
+      assert.deepEqual((await cache.read(url, { reuseOnly: true })).bytes, bytes);
+    } finally {
+      finishCapture();
+      cache.close();
+      vi.useRealTimers();
+    }
+  });
+}

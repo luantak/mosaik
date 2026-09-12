@@ -23,7 +23,9 @@ import {
 import { dshResourcePath, resolveDshCommand } from "./agents/dsh/paths.js";
 import { loadProjectEnv } from "./agents/dsh/session.js";
 import { authAutomationId } from "./auth/automation.js";
-import { localBrowserProfileDirectory } from "./auth/profile.js";
+import { camoufoxBrowserProfileDirectory, localBrowserProfileDirectory } from "./auth/profile.js";
+import { inspectCamoufoxInstall, camoufoxFetchCommand } from "./camoufox/install.js";
+import type { CamoufoxOptions } from "./camoufox/options.js";
 import { applySavedAuthentication, findAuthAutomationForUrl } from "./auth/session.js";
 import { runLoginCommand } from "./auth/cli.js";
 import { createProfileCredentialPrompter, profileCredentialsPath } from "./auth/credentials.js";
@@ -242,11 +244,18 @@ async function openInteractiveCliSession(
 ): Promise<InteractiveCliSession> {
   const dataDirectory = resolve(workingDirectory, ".mosaik");
   const config = await loadMosaikConfig(dataDirectory);
-  const profileDirectory = localBrowserProfileDirectory(dataDirectory, startUrl);
+  const configured = resolveMosaikBrowser(undefined, config);
+  const browserProvider = configured === "camoufox" ? "camoufox" : "local";
+  const profileDirectory =
+    browserProvider === "camoufox"
+      ? camoufoxBrowserProfileDirectory(dataDirectory, startUrl)
+      : localBrowserProfileDirectory(dataDirectory, startUrl);
   const browserSession = await openInteractiveBrowserSession({
     startUrl,
     profileDirectory,
+    browser: browserProvider,
     humanize: resolveHumanization(undefined, config),
+    ...(config.camoufox === undefined ? {} : { camoufox: config.camoufox }),
   });
   const runId = randomUUID();
   const runDirectory = resolve(dataDirectory, "runs", runId);
@@ -500,11 +509,14 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
   const config = await loadMosaikConfig(options.dataDirectory);
   const browserProvider = resolveMosaikBrowser(options.browser, config);
   const humanize = resolveHumanization(options.humanize, config);
-  if (browserProvider === "local" && options.kernelAuthConnection !== undefined) {
+  if (browserProvider !== "kernel" && options.kernelAuthConnection !== undefined) {
     throw new Error("--kernel-auth-connection requires --browser kernel");
   }
-  if (browserProvider === "local" && options.kernelProfile !== undefined) {
+  if (browserProvider !== "kernel" && options.kernelProfile !== undefined) {
     throw new Error("--kernel-profile requires --browser kernel");
+  }
+  if (browserProvider !== "kernel" && options.kernelStealth) {
+    throw new Error("--kernel-stealth requires --browser kernel");
   }
   const store = openFileRepository({
     dataRoot: options.dataDirectory,
@@ -531,16 +543,24 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
     );
   }
   const savedLocalAuthentication =
-    browserProvider === "local"
-      ? await findAuthAutomationForUrl(store, options.startUrl)
-      : undefined;
+    browserProvider === "kernel"
+      ? undefined
+      : await findAuthAutomationForUrl(store, options.startUrl);
+  const camoufoxOptions = config.camoufox;
   const browser = await reporter.task<Browser | BrowserSession>(
     {
       active:
         browserProvider === "kernel"
           ? "Opening a Kernel browser"
-          : `Opening Chromium${options.headless ? " in headless mode" : ""}`,
-      done: browserProvider === "kernel" ? "Kernel browser ready" : "Chromium ready",
+          : browserProvider === "camoufox"
+            ? `Opening Camoufox${options.headless ? " in headless mode" : ""}`
+            : `Opening Chromium${options.headless ? " in headless mode" : ""}`,
+      done:
+        browserProvider === "kernel"
+          ? "Kernel browser ready"
+          : browserProvider === "camoufox"
+            ? "Camoufox ready"
+            : "Chromium ready",
     },
     () =>
       browserProvider === "kernel"
@@ -553,19 +573,26 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
             ...(resolvedProfile === undefined ? {} : { profileName: resolvedProfile }),
           })
         : savedLocalAuthentication === undefined
-          ? openBrowserSession({ headless: options.headless, humanize })
-          : openInteractiveBrowserSession({
-              startUrl: options.startUrl,
-              profileDirectory: localBrowserProfileDirectory(
-                options.dataDirectory,
-                options.startUrl,
-              ),
+          ? openBrowserSession({
               headless: options.headless,
               humanize,
+              browser: browserProvider,
+              ...camoufoxSessionOptions(camoufoxOptions),
+            })
+          : openInteractiveBrowserSession({
+              startUrl: options.startUrl,
+              profileDirectory:
+                browserProvider === "camoufox"
+                  ? camoufoxBrowserProfileDirectory(options.dataDirectory, options.startUrl)
+                  : localBrowserProfileDirectory(options.dataDirectory, options.startUrl),
+              headless: options.headless,
+              humanize,
+              browser: browserProvider,
+              ...camoufoxSessionOptions(camoufoxOptions),
             }),
   );
   try {
-    if (browserProvider === "local" && savedLocalAuthentication !== undefined) {
+    if (browserProvider !== "kernel" && savedLocalAuthentication !== undefined) {
       await applySavedAuthentication(browser as InteractiveBrowserSession, store, options.startUrl);
     }
     const agent = new DshCapabilityCompositionAgent(
@@ -765,21 +792,28 @@ This cannot be undone by Mosaik. Type exactly "i know" to continue. Anything els
 
 async function setupCommand(args: string[]): Promise<number> {
   if (args.includes("--help") || args.includes("-h")) {
-    process.stdout.write("Usage:\n  mosaik setup\n");
+    process.stdout.write(
+      "Usage:\n  mosaik setup\n\nInstalls Playwright Chromium and fetches Camoufox.\n",
+    );
     return 0;
   }
   if (args.length > 0) throw new Error("mosaik setup does not accept arguments");
   const reporter = new TaskReporter();
   const packageRoot = dirname(require.resolve("playwright/package.json"));
   reporter.info("Installing Chromium with Playwright");
-  const exitCode = await spawnAndWait(process.execPath, [
+  const chromiumExit = await spawnAndWait(process.execPath, [
     resolve(packageRoot, "cli.js"),
     "install",
     "chromium",
   ]);
-  if (exitCode === 0) reporter.success("Chromium is ready");
+  if (chromiumExit === 0) reporter.success("Chromium is ready");
   else reporter.warning("Playwright could not install Chromium");
-  return exitCode;
+  const camoufox = camoufoxFetchCommand();
+  reporter.info("Fetching Camoufox with camoufox-js");
+  const camoufoxExit = await spawnAndWait(camoufox.executable, camoufox.args);
+  if (camoufoxExit === 0) reporter.success("Camoufox is ready");
+  else reporter.warning("camoufox-js could not fetch Camoufox");
+  return chromiumExit === 0 && camoufoxExit === 0 ? 0 : 1;
 }
 
 async function doctorCommand(args: string[], workingDirectory: string): Promise<number> {
@@ -854,6 +888,16 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
     status: chromiumReady ? "pass" : "fail",
     detail: chromiumReady ? `${basename(chromiumPath)} installed` : "browser binary not found",
     ...(chromiumReady ? {} : { fix: "Run `mosaik setup` to install Chromium." }),
+  });
+
+  const camoufox = await inspectCamoufoxInstall();
+  const camoufoxRequired = (await loadMosaikConfig(options.dataDirectory)).browser === "camoufox";
+  checks.push({
+    id: "camoufox",
+    label: "Camoufox",
+    status: camoufox.ready ? "pass" : camoufoxRequired ? "fail" : "warn",
+    detail: camoufox.detail,
+    ...(camoufox.ready ? {} : { fix: "Run `mosaik setup` to fetch Camoufox." }),
   });
 
   const keyReady = Boolean(process.env.OPENROUTER_API_KEY);
@@ -989,6 +1033,12 @@ async function packageVersion(): Promise<string> {
   );
   if (typeof value !== "object" || value === null || !("version" in value)) return "unknown";
   return String(value.version);
+}
+
+function camoufoxSessionOptions(camoufox: CamoufoxOptions | undefined): {
+  camoufox?: CamoufoxOptions;
+} {
+  return camoufox === undefined ? {} : { camoufox };
 }
 
 function unknownCommandMessage(command: string): string {

@@ -17,6 +17,8 @@ export {
   openAgentBrowser,
   openBrowserSession,
   openInteractiveBrowserSession,
+  MOSAIK_BROWSER_ENV,
+  MOSAIK_CAMOUFOX_OPTIONS_ENV,
   MOSAIK_CDP_WS_URL_ENV,
   type BrowserSession,
   type BrowserSessionOptions,

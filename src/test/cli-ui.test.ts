@@ -17,6 +17,7 @@ test("root help gives a quick start without terminal escape codes", () => {
   const output = renderRootHelp("0.1.0", plain);
   assert.match(output, /^Mosaik 0\.1\.0/);
   assert.match(output, /mosaik init/);
+  assert.match(output, /Install Chromium and Camoufox/);
   assert.match(output, /mosaik doctor/);
   assert.match(output, /pull\s+Pull learning from the remote library/);
   assert.match(output, /reset\s+Delete learned actions and automations/);
