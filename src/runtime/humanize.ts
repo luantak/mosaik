@@ -169,9 +169,7 @@ async function initializePointer(
   state: HumanizationState,
   pointer: ContextPointerState,
 ): Promise<void> {
-  const viewport =
-    page.viewportSize() ??
-    (await page.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight })));
+  const viewport = page.viewportSize() ?? (await pageViewport(page));
   const position = {
     x: randomNumber(8, Math.max(8, viewport.width - 8)),
     y: randomNumber(8, Math.max(8, viewport.height - 8)),
@@ -364,8 +362,7 @@ async function humanizedScrollIntoView(
   target: Locator,
   deadline?: InteractionDeadline,
 ): Promise<void> {
-  const viewport = page.viewportSize();
-  if (viewport === null) return;
+  const viewport = await deadlineRace(pageViewport(page), deadline);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const rect = await target.evaluate(
       (element) => {
@@ -395,7 +392,7 @@ async function humanizedScrollIntoView(
       moveMouse(
         page,
         state,
-        scrollCompanionDestination(page, state),
+        scrollCompanionDestination(viewport, state),
         undefined,
         undefined,
         deadline,
@@ -405,9 +402,10 @@ async function humanizedScrollIntoView(
   }
 }
 
-function scrollCompanionDestination(page: Page, state: HumanizationState): Point {
-  const viewport = page.viewportSize();
-  if (viewport === null) return { ...state.position };
+function scrollCompanionDestination(
+  viewport: { width: number; height: number },
+  state: HumanizationState,
+): Point {
   const angle = randomNumber(0, Math.PI * 2);
   const distance = randomNumber(24, 64);
   return {
@@ -1055,8 +1053,8 @@ async function stopIdle(state: HumanizationState): Promise<void> {
 }
 
 async function collectNeutralIdlePoints(page: Page, state: HumanizationState): Promise<Point[]> {
-  const viewport = page.viewportSize();
-  if (viewport === null) return [];
+  const viewport = await pageViewport(page).catch(() => undefined);
+  if (viewport === undefined) return [];
   const candidates = Array.from({ length: 16 }, () => {
     const angle = randomNumber(0, Math.PI * 2);
     const distance = randomNumber(12, state.settings.idleMaxDistance);
@@ -1077,6 +1075,14 @@ async function collectNeutralIdlePoints(page: Page, state: HumanizationState): P
       candidates,
     )
     .catch(() => []);
+}
+
+async function pageViewport(page: Page): Promise<{ width: number; height: number }> {
+  // Window-sized contexts (including Camoufox) have no fixed Playwright viewport.
+  return (
+    page.viewportSize() ??
+    page.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight }))
+  );
 }
 
 function neutralIdlePoint(state: HumanizationState): Point | undefined {

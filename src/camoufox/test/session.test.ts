@@ -9,7 +9,7 @@ import {
   openBrowserSession,
   openInteractiveBrowserSession,
 } from "../../runtime/session.js";
-import { isPageHumanized } from "../../runtime/humanize.js";
+import { humanizedClick, isPageHumanized } from "../../runtime/humanize.js";
 import { startFixtureServer } from "../../runtime/fixtures.js";
 import { inspectCamoufoxInstall } from "../install.js";
 import { toCamoufoxLaunchOptions } from "../options.js";
@@ -133,6 +133,52 @@ test.skipIf(!camoufox.ready)(
       else process.env.MOSAIK_CAMOUFOX_OPTIONS = previousOptions;
       if (previousCdp === undefined) delete process.env.MOSAIK_CDP_WS_URL;
       else process.env.MOSAIK_CDP_WS_URL = previousCdp;
+    }
+  },
+);
+
+test.skipIf(!camoufox.ready)(
+  "humanized Camoufox clicks scroll to offscreen pagination links",
+  async () => {
+    const fixture = await startFixtureServer({
+      "/": { html: '<div style="height:2200px">Catalog</div><a href="/next">Next</a>' },
+      "/next": { html: "<main>Next page</main>" },
+    });
+    const session = await openBrowserSession({ browser: "camoufox", humanize: true });
+    try {
+      await session.withPage(async (page) => {
+        assert.equal(page.viewportSize(), null);
+        await page.goto(fixture.url);
+        await page.evaluate(() => {
+          let moves = 0;
+          let wheels = 0;
+          document.addEventListener("mousemove", () => {
+            moves++;
+          });
+          document.addEventListener("wheel", () => {
+            wheels++;
+          });
+          document.querySelector("a")!.addEventListener("click", (event) => {
+            sessionStorage.setItem(
+              "clickEvidence",
+              JSON.stringify({ moves, wheels, trusted: event.isTrusted }),
+            );
+          });
+        });
+        await humanizedClick(page, page.getByRole("link", { name: "Next", exact: true }), {
+          timeout: 5_000,
+        });
+        assert.equal(page.url(), fixture.origin + "/next");
+        const evidence = await page.evaluate(() =>
+          JSON.parse(sessionStorage.getItem("clickEvidence")!),
+        );
+        assert.equal(evidence.trusted, true);
+        assert.ok(evidence.moves > 1, "mouse followed a path before clicking");
+        assert.ok(evidence.wheels > 1, "offscreen link was reached with wheel input");
+      });
+    } finally {
+      await session.close();
+      await fixture.close();
     }
   },
 );
