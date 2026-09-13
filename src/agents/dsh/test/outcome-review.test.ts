@@ -4,7 +4,7 @@ import { Context } from "@deepseek-ai/cordis";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { WorkerThreadCodeRuntime } from "@deepseek-ai/dsh-code-runtime-worker-thread";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import { parseTaskOutcome } from "../../outcome.js";
 import { apply } from "../composition-tools.js";
 
@@ -13,12 +13,12 @@ test("outcome mode exposes a working finishOutcome tool without browser or compo
   const previous = process.env.MOSAIK_OUTCOME_REVIEW;
   try {
     await ctx.plugin(SystemPrompt);
-    await ctx.plugin(ToolRuntime, { mode: "code", maxParallelSubCalls: 1 });
+    await ctx.plugin(ToolRuntime, { mode: "ptc", maxParallelSubCalls: 1 });
     await ctx.plugin(WorkerThreadCodeRuntime, {});
     process.env.MOSAIK_OUTCOME_REVIEW = "1";
     await apply(ctx);
     const result = await ctx.tools.execute({
-      callId: CallId("outcome-test"),
+      callId: ToolCallId("outcome-test"),
       name: "run_code",
       arguments: {
         code: 'return await tools.finishOutcome({ status: "incomplete", reason: "No source documents were collected" });',
@@ -32,7 +32,7 @@ test("outcome mode exposes a working finishOutcome tool without browser or compo
       reason: "No source documents were collected",
     });
     const unavailable = await ctx.tools.execute({
-      callId: CallId("no-composition"),
+      callId: ToolCallId("no-composition"),
       name: "run_code",
       arguments: {
         code: "return await tools.finishComposition({});",

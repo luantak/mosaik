@@ -9,7 +9,7 @@ import type { Browser } from "playwright";
 import { createNavigationObserver } from "./navigation-observation.js";
 import { Context } from "@deepseek-ai/cordis";
 import { WorkerThreadCodeRuntime } from "@deepseek-ai/dsh-code-runtime-worker-thread";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { defineTool, RUN_CODE_NAME } from "@deepseek-ai/dsh-tools";
 import type { CapabilityNeed } from "../../capabilities/compose.js";
@@ -841,14 +841,14 @@ export async function runCompositionCode(
   let nestedToolCalls = 0;
   try {
     await harness.plugin(SystemPrompt);
-    await harness.plugin(ToolRuntime, { mode: "code", maxParallelSubCalls: 1 });
+    await harness.plugin(ToolRuntime, { mode: "ptc", maxParallelSubCalls: 1 });
     await harness.plugin(WorkerThreadCodeRuntime, {});
     await registerCompositionTools(harness, session, options);
     harness.on("tools/result", (execution) => {
       if (execution.name !== RUN_CODE_NAME) nestedToolCalls += 1;
     });
     const result = await harness.tools.execute({
-      callId: CallId("composition-code-1"),
+      callId: ToolCallId("composition-code-1"),
       name: RUN_CODE_NAME,
       arguments: {
         code,
