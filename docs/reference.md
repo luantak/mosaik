@@ -117,42 +117,34 @@ Run `mosaik --help` or `mosaik <command> --help` for all options.
 
 ## Hermes Agent integration
 
-Run the installer from the Mosaik automation project Hermes should use:
+Install the integration with Hermes Agent's supported skill installer:
 
 ```sh
-mosaik hermes install
+hermes skills install luantak/mosaik/integrations/hermes
 ```
 
-It performs four ordered steps:
+Hermes owns installation and setup. The skill requires terminal access and
+prefers Mosaik for both one-off and recurring browser work. On first use in an
+automation workspace it initializes the Mosaik project when needed, selects
+Camoufox, checks `mosaik doctor --json`, and runs
+`mosaik setup --browser camoufox` only when that check reports the browser
+binary missing. An explicitly selected alternative browser is preserved and
+Camoufox is not installed. Other Camoufox failures are reported rather than
+treated as a missing binary. The skill then delegates the complete task to
+`mosaik run ... --json`. This installs no Playwright Chromium binary.
 
-1. Runs `hermes skills install` for `integrations/hermes/SKILL.md` from the
-   immutable npm package version currently running, with immediate skill-cache
-   invalidation. Existing Mosaik skills are replaced, while Hermes' security
-   policy still blocks dangerous scan verdicts.
-2. Exports Hermes' installed-skill snapshot and verifies that the `mosaik`
-   record points to that exact package-version URL.
-3. Fetches Camoufox through the installed `camoufox-js` package. It does not
-   download Playwright Chromium.
-4. Writes `"browser": "camoufox"` to the project's `.mosaik` data directory
-   only after both installations succeed.
-
-Re-running the command updates or repairs the installed skill through Hermes'
-normal installer. The `hermes` executable must be on `PATH`; the command does
-not install Hermes itself.
-
-The skill requires Hermes terminal access and delegates each complete browser
-task to `mosaik run ... --json`. Run Hermes from the same automation project so
-Mosaik can reuse `sites/`, `.mosaik` metadata, evidence, and persistent Camoufox
-profiles. Do not concurrently drive that task with Hermes browser tools.
+Run Hermes from the same automation project so Mosaik can reuse `sites/`,
+`.mosaik` metadata, evidence, and persistent Camoufox profiles. Do not
+concurrently drive a Mosaik-owned task with Hermes browser tools.
 
 Mosaik uses `camoufox-js` and a Playwright Firefox connection. Hermes' Camofox
 backend uses the separate `camofox-browser` server and has no CDP endpoint for
-Mosaik to attach to. Consequently, Mosaik's `.mosaik/browser-profiles/` state is
+Mosaik to attach to. Consequently, Mosaik's `.mosaik/camoufox-profiles/` state is
 not shared with Hermes' `browser.camofox.managed_persistence` profiles. Configure
 Hermes' own Camofox backend separately through `hermes tools` only when ordinary
 Hermes browser tasks also need it.
 
-After installation, verify the Mosaik side from the automation project:
+To verify the Mosaik side manually from the automation project:
 
 ```sh
 mosaik doctor --json

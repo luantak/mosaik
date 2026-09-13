@@ -18,7 +18,6 @@ test("root help gives a quick start without terminal escape codes", () => {
   assert.match(output, /^Mosaik 0\.1\.0/);
   assert.match(output, /mosaik init/);
   assert.match(output, /Install browser binaries/);
-  assert.match(output, /hermes\s+Install the Hermes integration/);
   assert.match(output, /mosaik doctor/);
   assert.match(output, /pull\s+Pull learning from the remote library/);
   assert.match(output, /reset\s+Delete learned actions and automations/);

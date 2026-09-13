@@ -42,7 +42,6 @@ import {
   ACTIONS_CLI_HELP,
   CONFIG_CLI_HELP,
   DOCTOR_CLI_HELP,
-  HERMES_CLI_HELP,
   INIT_CLI_HELP,
   KERNEL_CLI_HELP,
   PULL_CLI_HELP,
@@ -50,7 +49,6 @@ import {
   parseActionsCliArgs,
   parseConfigCliArgs,
   parseDoctorCliArgs,
-  parseHermesCliArgs,
   parseInitCliArgs,
   parseInteractiveCliArgs,
   parseKernelCliArgs,
@@ -91,7 +89,7 @@ import {
 } from "./config.js";
 import { composeAndRun } from "./composition/index.js";
 import { initializeMosaikProject } from "./init.js";
-import { hermesSkillSnapshotMatches, installHermesIntegration } from "./hermes/install.js";
+
 import {
   authAutomationFilePath,
   defaultLibraryNamespace,
@@ -123,7 +121,6 @@ const COMMANDS = [
   "pull",
   "reset",
   "setup",
-  "hermes",
   "doctor",
   "kernel",
   "config",
@@ -160,8 +157,7 @@ export async function main(args: string[], workingDirectory = process.cwd()): Pr
       return resetCommand(rest, workingDirectory);
     case "setup":
       return setupCommand(rest);
-    case "hermes":
-      return hermesCommand(rest, workingDirectory);
+
     case "doctor":
       return doctorCommand(rest, workingDirectory);
     case "kernel":
@@ -835,57 +831,6 @@ async function setupCommand(args: string[]): Promise<number> {
   return Object.values(result).every(Boolean) ? 0 : 1;
 }
 
-async function hermesCommand(args: string[], workingDirectory: string): Promise<number> {
-  const parsed = parseHermesCliArgs(args);
-  if (parsed.help) {
-    process.stdout.write(HERMES_CLI_HELP);
-    return 0;
-  }
-  const hermes = await findExecutableOnPath("hermes");
-  if (hermes === undefined) {
-    throw new Error(
-      "Hermes Agent is not on PATH. Install it from https://hermes-agent.nousresearch.com, then retry.",
-    );
-  }
-  const reporter = new TaskReporter();
-  const camoufox = camoufoxFetchCommand();
-  const version = await packageVersion();
-  const result = await installHermesIntegration(
-    {
-      dataDirectory: resolve(workingDirectory, ".mosaik"),
-      packageVersion: version,
-    },
-    {
-      installSkill: async (installArgs) => {
-        reporter.info("Installing the Mosaik skill for Hermes Agent");
-        const exitCode = await spawnAndWait(hermes, [...installArgs]);
-        if (exitCode === 0) reporter.success("Hermes skill is ready");
-        else reporter.warning("Hermes could not install the Mosaik skill");
-        return exitCode;
-      },
-      verifySkill: async (expectedIdentifier) => {
-        const snapshot = await commandJsonOutput(hermes, ["skills", "snapshot", "export", "-"]);
-        const matches = hermesSkillSnapshotMatches(snapshot, expectedIdentifier);
-        if (matches) reporter.success("Hermes recorded the package-pinned skill");
-        else reporter.warning("Hermes did not record the package-pinned Mosaik skill");
-        return matches;
-      },
-      installCamoufox: async () => {
-        reporter.info("Fetching Camoufox with camoufox-js");
-        const exitCode = await spawnAndWait(camoufox.executable, camoufox.args);
-        if (exitCode === 0) reporter.success("Camoufox is ready");
-        else reporter.warning("camoufox-js could not fetch Camoufox");
-        return exitCode;
-      },
-    },
-  );
-  if (!result.skillInstalled || !result.camoufoxInstalled) return 1;
-  reporter.success(
-    `Hermes integration installed; Camoufox is the default in ${resolve(workingDirectory, ".mosaik")}`,
-  );
-  return 0;
-}
-
 async function doctorCommand(args: string[], workingDirectory: string): Promise<number> {
   const options = parseDoctorCliArgs(args, workingDirectory);
   if (options.help) {
@@ -1060,30 +1005,6 @@ async function commandOutput(
     child.once("close", (code) => {
       const output = (stdout.trim() || stderr.trim()).split("\n")[0] ?? "no output";
       resolvePromise({ ok: code === 0, output });
-    });
-  });
-}
-
-async function commandJsonOutput(executable: string, args: string[]): Promise<unknown> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-    child.once("error", rejectPromise);
-    child.once("close", (code) => {
-      if (code !== 0) {
-        rejectPromise(
-          new Error(stderr.trim() || `Command exited with status ${code ?? "unknown"}`),
-        );
-        return;
-      }
-      try {
-        resolvePromise(JSON.parse(stdout));
-      } catch {
-        rejectPromise(new Error("Hermes returned invalid skill snapshot JSON"));
-      }
     });
   });
 }
