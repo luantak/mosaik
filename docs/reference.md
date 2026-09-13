@@ -18,11 +18,13 @@ mosaik doctor
 
 Mosaik requires Node 22.18 or newer. `mosaik setup` installs Playwright's
 Chromium build and fetches the Camoufox binary used by `--browser camoufox`.
+Install only one browser with `mosaik setup --browser chromium` or `mosaik setup
+--browser camoufox`; use `--browser all` for the default behavior.
 
 `mosaik doctor` checks the installed command, Node.js, DSH, bundled runtime
 files, Chromium, Camoufox, provider credentials, and the data directory.
-A missing Camoufox binary is a warning unless the project default is
-`camoufox`. Failed checks include the exact repair command. Use
+A missing binary is a required failure only when its local provider is selected;
+unused local browsers are warnings. Failed checks include the exact repair command. Use
 `mosaik doctor --json` in scripts and CI.
 
 Run `mosaik` with no arguments in an interactive terminal to start an agent
@@ -112,6 +114,52 @@ mosaik actions list --site example.com --json
 ```
 
 Run `mosaik --help` or `mosaik <command> --help` for all options.
+
+## Hermes Agent integration
+
+Run the installer from the Mosaik automation project Hermes should use:
+
+```sh
+mosaik hermes install
+```
+
+It performs four ordered steps:
+
+1. Runs `hermes skills install` for `integrations/hermes/SKILL.md` from the
+   immutable npm package version currently running, with immediate skill-cache
+   invalidation. Existing Mosaik skills are replaced, while Hermes' security
+   policy still blocks dangerous scan verdicts.
+2. Exports Hermes' installed-skill snapshot and verifies that the `mosaik`
+   record points to that exact package-version URL.
+3. Fetches Camoufox through the installed `camoufox-js` package. It does not
+   download Playwright Chromium.
+4. Writes `"browser": "camoufox"` to the project's `.mosaik` data directory
+   only after both installations succeed.
+
+Re-running the command updates or repairs the installed skill through Hermes'
+normal installer. The `hermes` executable must be on `PATH`; the command does
+not install Hermes itself.
+
+The skill requires Hermes terminal access and delegates each complete browser
+task to `mosaik run ... --json`. Run Hermes from the same automation project so
+Mosaik can reuse `sites/`, `.mosaik` metadata, evidence, and persistent Camoufox
+profiles. Do not concurrently drive that task with Hermes browser tools.
+
+Mosaik uses `camoufox-js` and a Playwright Firefox connection. Hermes' Camofox
+backend uses the separate `camofox-browser` server and has no CDP endpoint for
+Mosaik to attach to. Consequently, Mosaik's `.mosaik/browser-profiles/` state is
+not shared with Hermes' `browser.camofox.managed_persistence` profiles. Configure
+Hermes' own Camofox backend separately through `hermes tools` only when ordinary
+Hermes browser tasks also need it.
+
+After installation, verify the Mosaik side from the automation project:
+
+```sh
+mosaik doctor --json
+```
+
+Camoufox must pass. A missing Chromium binary is only a warning while Camoufox
+is selected.
 
 ## Browser proxies
 
