@@ -29,7 +29,7 @@ import { createDiscoveryTools } from "../../discovery/index.js";
 import { DEFAULT_DISCOVERY_CONSTRAINTS } from "../../discovery/types.js";
 import { openFileRepository } from "../../persist/index.js";
 import { bindLocator, resolveLocator } from "../../runtime/locators.js";
-import { resolveStepValue, type Condition } from "../../core/types.js";
+import { hasLocator, resolveStepValue, type Condition } from "../../core/types.js";
 import { inputReferences, validateCondition } from "../../capabilities/contracts.js";
 import { textContentTarget } from "../../runtime/text-preview.js";
 import { executeStep } from "../../runtime/execute.js";
@@ -400,11 +400,22 @@ const stepParameter = {
     type: {
       type: "string",
       required: true,
-      enum: ["navigate", "fill", "select", "click", "extract-text", "extract-list"],
+      enum: [
+        "back",
+        "navigate",
+        "fill",
+        "select",
+        "upload",
+        "click",
+        "hover",
+        "drag",
+        "extract-text",
+        "extract-list",
+      ],
     },
     safety: { type: "string", enum: ["read-only", "browser-local", "external-side-effect"] },
     url: { type: "string" },
-    value: { type: "string" },
+    value: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
     valueKind: { type: "string", enum: ["literal", "input"] },
     valueKey: { type: "string" },
     output: { type: "string" },
@@ -417,6 +428,22 @@ const stepParameter = {
     completion: conditionParameter,
     empty: conditionParameter,
     locator: locatorParameter,
+    target: locatorParameter,
+    button: { type: "string", enum: ["left", "right", "middle"] },
+    clickCount: { type: "number", enum: [1, 2] },
+    modifiers: {
+      type: "array",
+      items: { type: "string", enum: ["Alt", "Control", "Meta", "Shift"] },
+    },
+    dialog: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { type: "string", required: true, enum: ["accept", "dismiss"] },
+        promptText: { type: "string" },
+        promptInputKey: { type: "string" },
+      },
+    },
     elementRef: {
       type: "string",
       description:
@@ -995,50 +1022,62 @@ export async function registerActionDiscoveryTools(
       throw new Error(
         "Include the explored tab activation in this action's steps before the control it exposed. Saving only the final control depends on transient exploration state. Resubmit without clicking again.",
       );
-    if (draft.safety === "browser-local") {
-      let observedIndex = 0;
-      for (const step of draft.steps) {
-        if (step.type !== "click" && step.type !== "fill" && step.type !== "select") continue;
-        const operation = discoveryOperation(step, input.taskInputs ?? {});
-        while (observedIndex < performedOperations.length) {
-          const observed = performedOperations[observedIndex];
-          if (isDeepStrictEqual(observed, operation)) {
-            if ("locator" in step) rememberLocator(step.locator);
-            break;
-          }
-          const target = performedTargets.get(observed);
-          if (
-            target &&
-            context.page &&
-            step.type === "click" &&
-            (observed as { type?: string }).type === "click"
-          ) {
-            try {
-              const candidate = resolveLocator(context.page, step.locator, input.taskInputs ?? {});
-              if (
-                (await candidate.count()) === 1 &&
-                (await candidate.evaluate(
-                  (node, original) => node === original && node.isConnected,
-                  target,
-                ))
-              ) {
-                performedOperations[observedIndex] = operation;
-                performedTargets.set(operation, target);
-                rememberLocator(step.locator);
-                break;
-              }
-            } catch {
-              /* Detached observations cannot prove a new locator. */
-            }
-          }
-          observedIndex++;
+    let observedIndex = 0;
+    for (const step of draft.steps) {
+      if (
+        step.type !== "back" &&
+        step.type !== "navigate" &&
+        step.type !== "click" &&
+        step.type !== "drag" &&
+        step.type !== "hover" &&
+        step.type !== "fill" &&
+        step.type !== "select" &&
+        step.type !== "upload"
+      )
+        continue;
+      const operation = discoveryOperation(step, input.taskInputs ?? {});
+      while (observedIndex < performedOperations.length) {
+        const observed = performedOperations[observedIndex];
+        if (isDeepStrictEqual(observed, operation)) {
+          if ("locator" in step) rememberLocator(step.locator);
+          break;
         }
-        if (observedIndex === performedOperations.length)
-          throw new Error(
-            `Step ${step.id} has not been performed with these inputs. A locator test only finds the control. Explore this step once, inspect its result, and resubmit without repeating earlier successful steps.`,
-          );
+        const target = performedTargets.get(observed);
+        if (
+          target &&
+          context.page &&
+          step.type === "click" &&
+          (observed as { type?: string }).type === "click" &&
+          isDeepStrictEqual(
+            { ...(observed as Record<string, unknown>), locator: undefined },
+            { ...operation, locator: undefined },
+          )
+        ) {
+          try {
+            const candidate = resolveLocator(context.page, step.locator, input.taskInputs ?? {});
+            if (
+              (await candidate.count()) === 1 &&
+              (await candidate.evaluate(
+                (node, original) => node === original && node.isConnected,
+                target,
+              ))
+            ) {
+              performedOperations[observedIndex] = operation;
+              performedTargets.set(operation, target);
+              rememberLocator(step.locator);
+              break;
+            }
+          } catch {
+            /* Detached observations cannot prove a new locator. */
+          }
+        }
         observedIndex++;
       }
+      if (observedIndex === performedOperations.length)
+        throw new Error(
+          `Step ${step.id} has not been performed with these inputs. A locator test only finds the control. Explore this step once, inspect its result, and resubmit without repeating earlier successful steps.`,
+        );
+      observedIndex++;
     }
     for (const step of draft.steps) {
       assertReusableTextExtraction(step, previewedText);
@@ -1462,12 +1501,40 @@ export async function registerActionDiscoveryTools(
             ? { ok: true, url, unchanged: true }
             : await tools.exploreNavigate({ url });
         if (!result.ok) return asJson(result);
+        performedOperations.push({ type: "navigate", url });
         return asJson({
           ...result,
           observedStep:
             args.inputKey === undefined
               ? { type: "navigate", url }
               : { type: "navigate", valueKind: "input", valueKey: args.inputKey },
+          overview: overviewHistory.present(
+            await referenceOverview(withoutDegraded(toPageSnapshot(await tools.getOverview()))),
+          ),
+        });
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "exploreBack",
+      description:
+        "Return to the previous browser history entry while exploring. Does not add a site action step.",
+      timeoutMs: 15_000,
+      parameters: {},
+      output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
+      execute: async () => {
+        previews.clear();
+        listPreviews.clear();
+        markExplore();
+        otherEffects = true;
+        const result = await tools.exploreBack();
+        if (!result.ok) return asJson(result);
+        performedOperations.push({ type: "back" });
+        return asJson({
+          ...result,
+          observedStep: { type: "back" },
           overview: overviewHistory.present(
             await referenceOverview(withoutDegraded(toPageSnapshot(await tools.getOverview()))),
           ),
@@ -1547,6 +1614,146 @@ export async function registerActionDiscoveryTools(
 
   ctx.tools.register(
     defineTool({
+      name: "exploreHover",
+      description: "Hover an observed element while exploring. Does not add a site action step.",
+      timeoutMs: 15_000,
+      parameters: {
+        locator: locatorParameter,
+        elementRef: { type: "string" },
+        expectedLabel: { type: "string" },
+      },
+      output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
+      execute: async (args) => {
+        previews.clear();
+        listPreviews.clear();
+        markExplore();
+        otherEffects = true;
+        const locator = await referencedLocator(args);
+        const result = await tools.exploreHover({ locator: exampleLocator(locator) });
+        if (result.ok) {
+          rememberLocator(locator);
+          performedOperations.push({ type: "hover", locator: exampleLocator(locator) });
+        }
+        return asJson({ ...result, observedStep: { type: "hover", locator } });
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "exploreDrag",
+      description:
+        "Drag a source element to a validated target while exploring. Does not add a site action step.",
+      timeoutMs: 15_000,
+      parameters: {
+        source: { ...locatorParameter, required: true },
+        target: { ...locatorParameter, required: true },
+      },
+      output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
+      execute: async (args) => {
+        previews.clear();
+        listPreviews.clear();
+        markExplore();
+        otherEffects = true;
+        const source = toLocator(args.source as unknown as LocatorInput);
+        const target = toLocator(args.target as unknown as LocatorInput);
+        const result = await tools.exploreDrag({
+          source: exampleLocator(source),
+          target: exampleLocator(target),
+        });
+        if (result.ok || result.actionPerformed) {
+          rememberLocator(source);
+          rememberLocator(target);
+          performedOperations.push({
+            type: "drag",
+            locator: exampleLocator(source),
+            target: exampleLocator(target),
+          });
+        }
+        return asJson({ ...result, observedStep: { type: "drag", locator: source, target } });
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "exploreSelect",
+      description:
+        "Select one or more native option values while exploring. Does not add a site action step.",
+      timeoutMs: 15_000,
+      parameters: {
+        locator: locatorParameter,
+        elementRef: { type: "string" },
+        expectedLabel: { type: "string" },
+        value: {
+          required: true,
+          oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+        },
+      },
+      output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
+      execute: async (args) => {
+        previews.clear();
+        listPreviews.clear();
+        markExplore();
+        otherEffects = true;
+        const locator = await referencedLocator(args);
+        const result = await tools.exploreSelect({
+          locator: exampleLocator(locator),
+          value: args.value,
+        });
+        if (result.ok) {
+          rememberLocator(locator);
+          performedOperations.push({
+            type: "select",
+            locator: exampleLocator(locator),
+            value: args.value,
+          });
+        }
+        return asJson({ ...result, observedStep: { type: "select", locator, value: args.value } });
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "exploreUpload",
+      description:
+        "Assign one local file to a file input while exploring. Does not add a site action step.",
+      timeoutMs: 15_000,
+      parameters: {
+        locator: locatorParameter,
+        elementRef: { type: "string" },
+        expectedLabel: { type: "string" },
+        inputKey: { type: "string", required: true },
+      },
+      output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
+      execute: async (args) => {
+        previews.clear();
+        listPreviews.clear();
+        markExplore();
+        otherEffects = true;
+        const locator = await referencedLocator(args);
+        const file = resolveStepValue({ kind: "input", key: args.inputKey }, input.taskInputs);
+        const result = await tools.exploreUpload({ locator: exampleLocator(locator), file });
+        if (result.ok || result.actionPerformed) {
+          rememberLocator(locator);
+          performedOperations.push({ type: "upload", locator: exampleLocator(locator), file });
+        }
+        return asJson({
+          ...result,
+          observedStep: {
+            type: "upload",
+            locator,
+            valueKind: "input",
+            valueKey: args.inputKey,
+          },
+        });
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
       name: "exploreClick",
       description:
         "Click an elementRef from the overview, or an advanced locator, while exploring. No testLocator call is needed before using a reference. Does not add a site action step. Pass a completion object to check the result with a before-value captured before clicking. A changed completion must succeed here before it can be saved. When completion is unknown, omit it on the first exploration and inspect the returned state. If actionPerformed is true but ok is false, the click completed: use checkCondition to correct or recheck completion without clicking again.",
@@ -1560,9 +1767,26 @@ export async function registerActionDiscoveryTools(
             "Required with elementRef: copy the intended target label from the overview. Checked before any browser action.",
         },
         completion: conditionParameter,
+        button: { type: "string", enum: ["left", "right", "middle"] },
+        clickCount: { type: "number", enum: [1, 2] },
+        modifiers: {
+          type: "array",
+          items: { type: "string", enum: ["Alt", "Control", "Meta", "Shift"] },
+        },
+        dialog: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            action: { type: "string", required: true, enum: ["accept", "dismiss"] },
+            promptText: { type: "string" },
+            promptInputKey: { type: "string" },
+          },
+        },
       },
       output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
       execute: async (args) => {
+        if (args.dialog?.promptText !== undefined && args.dialog.promptInputKey !== undefined)
+          throw new Error("Use dialog promptText or promptInputKey, not both");
         if (args.elementRef && args.expectedLabel === undefined)
           throw new Error(
             "Provide expectedLabel with elementRef so the host can check the intended target before acting. Copy its label from the overview; no browser action was performed.",
@@ -1599,14 +1823,41 @@ export async function registerActionDiscoveryTools(
         const isTab = targetHandle
           ? await targetHandle.evaluate((node) => node.getAttribute("role") === "tab")
           : false;
+        const resolvedDialog =
+          args.dialog === undefined
+            ? undefined
+            : {
+                action: args.dialog.action,
+                ...(args.dialog.promptInputKey !== undefined
+                  ? {
+                      promptText: resolveStepValue(
+                        { kind: "input", key: args.dialog.promptInputKey },
+                        input.taskInputs,
+                      ),
+                    }
+                  : args.dialog.promptText === undefined
+                    ? {}
+                    : { promptText: args.dialog.promptText }),
+              };
         const result = await tools.exploreClick({
           locator: exampleLocator(locator),
+          ...(args.button === undefined ? {} : { button: args.button }),
+          ...(args.clickCount === undefined ? {} : { clickCount: args.clickCount }),
+          ...(args.modifiers === undefined ? {} : { modifiers: args.modifiers }),
+          ...(resolvedDialog === undefined ? {} : { dialog: resolvedDialog }),
           ...(completion === undefined ? {} : { completion }),
         });
         lastClick = undefined;
         if (result.ok || result.actionPerformed) {
           performedClicks.push(exampleLocator(locator));
-          const operation = { type: "click", locator: exampleLocator(locator) };
+          const operation = {
+            type: "click",
+            locator: exampleLocator(locator),
+            ...(args.button === undefined ? {} : { button: args.button }),
+            ...(args.clickCount === undefined ? {} : { clickCount: args.clickCount }),
+            ...(args.modifiers === undefined ? {} : { modifiers: args.modifiers }),
+            ...(resolvedDialog === undefined ? {} : { dialog: resolvedDialog }),
+          };
           performedOperations.push(operation);
           if (targetHandle) performedTargets.set(operation, targetHandle);
           if (isTab) openedTabs.push(operation);
@@ -1643,6 +1894,10 @@ export async function registerActionDiscoveryTools(
           observedStep: {
             type: "click",
             ...(args.elementRef ? { elementRef: args.elementRef } : { locator }),
+            ...(args.button === undefined ? {} : { button: args.button }),
+            ...(args.clickCount === undefined ? {} : { clickCount: args.clickCount }),
+            ...(args.modifiers === undefined ? {} : { modifiers: args.modifiers }),
+            ...(args.dialog === undefined ? {} : { dialog: args.dialog }),
             ...(observedCompletion ? { completion: observedCompletion } : {}),
           },
           ...(context.page.url() !== startingUrl
@@ -2042,14 +2297,33 @@ function toScope(input: LocatorInput["within"]) {
 
 type ActionStepInput = {
   id: string;
-  type: "navigate" | "fill" | "select" | "click" | "extract-text" | "extract-list";
+  type:
+    | "back"
+    | "navigate"
+    | "fill"
+    | "select"
+    | "upload"
+    | "click"
+    | "hover"
+    | "drag"
+    | "extract-text"
+    | "extract-list";
   safety?: StepSafety;
   url?: string;
-  value?: string;
+  value?: string | string[];
   valueKind?: "literal" | "input";
   valueKey?: string;
   output?: string;
   locator?: LocatorInput;
+  target?: LocatorInput;
+  button?: "left" | "right" | "middle";
+  clickCount?: 1 | 2;
+  modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift">;
+  dialog?: {
+    action: "accept" | "dismiss";
+    promptText?: string;
+    promptInputKey?: string;
+  };
   fields?: ListFieldInput[];
   ready?: unknown;
   completion?: unknown;
@@ -2130,17 +2404,20 @@ function toActionStep(input: ActionStepInput): Step {
 }
 function toActionStepBase(input: ActionStepInput): Step {
   const safety =
-    input.safety ??
-    (input.type === "extract-text" || input.type === "extract-list"
-      ? "read-only"
-      : "browser-local");
+    input.type === "upload"
+      ? "external-side-effect"
+      : (input.safety ??
+        (input.type === "extract-text" || input.type === "extract-list"
+          ? "read-only"
+          : "browser-local"));
   if (input.type === "navigate") {
     if (input.valueKind === "input") {
-      return { id: input.id, type: "navigate", safety, url: toValue(input) };
+      return { id: input.id, type: "navigate", safety, url: toValue(input) as FillValue };
     }
     if (input.url === undefined) throw new Error("navigate step requires url or input valueKey");
     return { id: input.id, type: "navigate", safety, url: { kind: "literal", value: input.url } };
   }
+  if (input.type === "back") return { id: input.id, type: "back", safety };
   if (input.locator === undefined) throw new Error(`${input.type} step requires locator`);
   const locator = toLocator(input.locator);
   if (input.type === "extract-text") {
@@ -2164,15 +2441,47 @@ function toActionStepBase(input: ActionStepInput): Step {
     };
   }
   if (input.type === "click") {
-    return { id: input.id, type: "click", safety, locator };
+    if (input.dialog?.promptText !== undefined && input.dialog.promptInputKey !== undefined)
+      throw new Error("Use dialog promptText or promptInputKey, not both");
+    return {
+      id: input.id,
+      type: "click",
+      safety,
+      locator,
+      ...(input.button === undefined ? {} : { button: input.button }),
+      ...(input.clickCount === undefined ? {} : { clickCount: input.clickCount }),
+      ...(input.modifiers === undefined ? {} : { modifiers: input.modifiers }),
+      ...(input.dialog === undefined
+        ? {}
+        : {
+            dialog: {
+              action: input.dialog.action,
+              ...(input.dialog.promptInputKey !== undefined
+                ? { promptText: { kind: "input" as const, key: input.dialog.promptInputKey } }
+                : input.dialog.promptText !== undefined
+                  ? { promptText: input.dialog.promptText }
+                  : {}),
+            },
+          }),
+    };
   }
-  return {
-    id: input.id,
-    type: input.type,
-    safety,
-    locator,
-    value: toValue(input),
-  };
+  if (input.type === "hover") return { id: input.id, type: input.type, safety, locator };
+  if (input.type === "drag") {
+    if (input.target === undefined) throw new Error("drag step requires target");
+    return { id: input.id, type: "drag", safety, locator, target: toLocator(input.target) };
+  }
+  if (input.type === "upload") {
+    if (input.valueKind !== "input") throw new Error("upload step requires an input valueKey");
+    const file = toValue(input);
+    if (Array.isArray(file)) throw new Error("upload step requires a scalar input valueKey");
+    return { id: input.id, type: "upload", safety, locator, file };
+  }
+  const value = toValue(input);
+  if (input.type === "fill") {
+    if (Array.isArray(value)) throw new Error("fill step requires a scalar value");
+    return { id: input.id, type: "fill", safety, locator, value };
+  }
+  return { id: input.id, type: "select", safety, locator, value };
 }
 
 function toListFields(fields: ListFieldInput[]): Record<string, ListField> {
@@ -2227,16 +2536,17 @@ function toActionSchema(fields: ContractFieldInput[]): ActionSchema {
 }
 
 function toValue(input: {
-  value?: string;
+  value?: string | string[];
   valueKind?: "literal" | "input";
   valueKey?: string;
-}): FillValue {
+}): FillValue | string[] {
   if (input.valueKind === "input") {
     if (input.valueKey === undefined) throw new Error("input value requires valueKey");
     return { kind: "input", key: input.valueKey };
   }
   if (input.valueKind === "literal") {
-    if (input.value === undefined) throw new Error("literal value requires value");
+    if (input.value === undefined || Array.isArray(input.value))
+      throw new Error("literal value requires a string value");
     return { kind: "literal", value: input.value };
   }
   if (input.value === undefined) throw new Error("fill/select step requires value");
@@ -2296,16 +2606,18 @@ function assertStepWasValidated(
   validatedLocators: Set<string>,
   validatedLists: Set<string>,
 ): void {
-  if (step.type === "navigate") return;
+  if (step.type === "navigate" || step.type === "back") return;
   if (step.type === "extract-list") {
     if (validatedLists.has(listStepKey(step.locator, step.fields))) return;
     throw new Error(
       `Step ${step.id} extraction was not successfully validated. Call previewList with its exact locator and fields before saving it`,
     );
   }
-  if (validatedLocators.has(locatorKey(step.locator))) return;
+  if (step.type === "drag" && !validatedLocators.has(locatorKey(step.target)))
+    throw new Error(`Step ${step.id}: Drag target was not successfully validated`);
+  if (hasLocator(step) && validatedLocators.has(locatorKey(step.locator))) return;
   throw new Error(
-    `Step ${step.id}: Locator was not successfully validated: ${JSON.stringify(step.locator)}. Call testLocator and use a unique, visible, enabled locator before saving it`,
+    `Step ${step.id}: Locator was not successfully validated: ${hasLocator(step) ? JSON.stringify(step.locator) : "missing"}. Call testLocator and use a unique, visible, enabled locator before saving it`,
   );
 }
 

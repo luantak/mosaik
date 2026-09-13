@@ -8,14 +8,22 @@ export function inputReferences(value: unknown): string[] {
     return [value.key];
   return Object.values(value).flatMap(inputReferences);
 }
-export function validateReferences(value: unknown, inputs: ActionSchema): void {
+export function validateReferences(
+  value: unknown,
+  inputs: ActionSchema,
+  options: { allowStringArray?: boolean } = {},
+): void {
   for (const key of inputReferences(value)) {
     const parts = key.split(".");
     let schema = inputs[parts.shift()!];
     for (const part of parts)
       schema = schema?.type === "object" ? schema.properties[part] : undefined;
-    if (schema === undefined || !["string", "number", "boolean"].includes(schema.type))
-      throw new CompileError(`Invalid scalar input reference: ${key}`);
+    const scalar = schema !== undefined && ["string", "number", "boolean"].includes(schema.type);
+    const stringArray =
+      options.allowStringArray === true &&
+      schema?.type === "array" &&
+      schema.items.type === "string";
+    if (!scalar && !stringArray) throw new CompileError(`Invalid scalar input reference: ${key}`);
   }
 }
 export function validateCondition(condition: Condition | undefined, depth = 0): void {

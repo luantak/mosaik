@@ -7,6 +7,10 @@ import { emitActionSource, parseActionSource } from "../../library/action-source
 import { createPlaywrightHost } from "../../automations/host.js";
 import { executeStep } from "../execute.js";
 import type { LocatorDefinition, Step } from "../../core/types.js";
+import { inputRef, upload } from "../../core/index.js";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const id = { kind: "input" as const, key: "id" };
 const edit: LocatorDefinition = {
@@ -202,6 +206,62 @@ test("overlapping implementations fail before clicking and unconfirmed clicks ar
     );
     assert.equal(result.ok ? "" : result.type, "uncertain-outcome");
   } finally {
+    await browser.close();
+  }
+});
+
+test("action completion failure after upload is uncertain and never invokes repair", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const directory = await mkdtemp(join(tmpdir(), "mosaik-host-upload-"));
+  const path = join(directory, "HOST_UPLOAD_SENTINEL.txt");
+  await writeFile(path, "uploaded");
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<label for="file">Report</label><input id="file" type="file">');
+    const action = defineAction({
+      id: "site.upload",
+      siteId: "example.com",
+      name: "uploadReport",
+      description: "Upload a report",
+      safety: "external-side-effect",
+      inputs: { path: { type: "string" } },
+      completion: { kind: "count", locator: { strategy: "css", selector: "#never" }, count: 1 },
+      conditionTimeoutMs: 25,
+      steps: [
+        upload({
+          id: "upload",
+          locator: { strategy: "label", label: "Report" },
+          file: inputRef("path"),
+          safety: "external-side-effect",
+        }),
+      ],
+    });
+    let repairs = 0;
+    const host = createPlaywrightHost(page, [action], {
+      timeoutMs: 500,
+      repair: async () => {
+        repairs += 1;
+        return action;
+      },
+    });
+
+    await assert.rejects(host.invoke("uploadReport", { path }), (error: unknown) => {
+      assert.doesNotMatch(String(error), /HOST_UPLOAD_SENTINEL/);
+      return (
+        typeof error === "object" &&
+        error !== null &&
+        "failure" in error &&
+        (error as { failure?: { error?: { type?: string } } }).failure?.error?.type ===
+          "uncertain-outcome"
+      );
+    });
+    assert.equal(repairs, 0);
+    assert.equal(
+      await page.locator("input").evaluate((node) => (node as HTMLInputElement).files?.length),
+      1,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
     await browser.close();
   }
 });

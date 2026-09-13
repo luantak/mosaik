@@ -13,6 +13,7 @@ type Expression = Node & {
   property?: Expression;
   arguments?: Expression[];
   properties?: Expression[];
+  elements?: Array<Expression | null>;
   key?: Expression;
   value?: unknown;
   kind?: string;
@@ -30,7 +31,7 @@ export function canCompleteFromDiscovery(
   const byName = new Map(actions.map((action) => [action.name, action]));
   const called = new Set<string>();
   let simple = true;
-  let mutable = false;
+  let requiresReceipt = false;
   const calls: Array<{ action: SiteActionDefinition; args: Record<string, unknown> | undefined }> =
     [];
   let file: Node;
@@ -80,24 +81,45 @@ export function canCompleteFromDiscovery(
         if (
           !action ||
           called.has(action.name) ||
-          !["read-only", "browser-local"].includes(action.safety) ||
-          !(action.implementations ?? [action.implementation]).every((implementation) =>
-            implementation.steps.every(
-              (step) =>
-                step.type === "navigate" ||
-                step.type === "click" ||
-                step.type === "fill" ||
-                step.type === "select" ||
-                step.type === "extract-text" ||
-                step.type === "extract-list",
-            ),
+          !["read-only", "browser-local", "external-side-effect"].includes(action.safety) ||
+          !(action.implementations ?? [action.implementation]).every(
+            (implementation) =>
+              (action.safety !== "external-side-effect" ||
+                (implementation.steps.some(
+                  (step) => step.type === "upload" && step.safety === "external-side-effect",
+                ) &&
+                  implementation.steps.every(
+                    (step) => step.safety !== "external-side-effect" || step.type === "upload",
+                  ))) &&
+              implementation.steps.every(
+                (step) =>
+                  step.type === "back" ||
+                  step.type === "navigate" ||
+                  step.type === "click" ||
+                  step.type === "drag" ||
+                  step.type === "hover" ||
+                  step.type === "fill" ||
+                  step.type === "select" ||
+                  step.type === "upload" ||
+                  step.type === "extract-text" ||
+                  step.type === "extract-list",
+              ),
           )
         )
           simple = false;
         if (action) {
           called.add(action.name);
           calls.push({ action, args: literalArguments(node.arguments ?? []) });
-          if (action.safety !== "read-only") mutable = true;
+          if (
+            (action.implementations ?? [action.implementation]).some((implementation) =>
+              implementation.steps.some((step) =>
+                ["back", "navigate", "click", "drag", "hover", "fill", "select", "upload"].includes(
+                  step.type,
+                ),
+              ),
+            )
+          )
+            requiresReceipt = true;
         }
       }
     }
@@ -110,7 +132,7 @@ export function canCompleteFromDiscovery(
   };
   visit(file);
   if (!simple || called.size === 0) return false;
-  if (!mutable) return true;
+  if (!requiresReceipt) return true;
   const receipts = observations.slice(-calls.length);
   if (receipts.length !== calls.length) return false;
   return calls.every(({ action, args }, index) => {
@@ -131,12 +153,15 @@ export function canCompleteFromDiscovery(
       )
     )
       return false;
-    if (action.safety === "read-only") return true;
-    if (Object.keys(action.outputs).length > 0) return false;
+    if (action.safety !== "read-only" && Object.keys(action.outputs).length > 0) return false;
     try {
       return (action.implementations ?? [action.implementation]).every((implementation) =>
         Array.isArray(receipt.performedOperations)
-          ? implementation.steps.every((step) => ["click", "fill", "select"].includes(step.type)) &&
+          ? implementation.steps.every((step) =>
+              ["back", "navigate", "click", "drag", "hover", "fill", "select", "upload"].includes(
+                step.type,
+              ),
+            ) &&
             observedOperationsCover(
               receipt.performedOperations,
               implementation.steps.map((step) => discoveryOperation(step, args)),
@@ -163,19 +188,31 @@ function literalArguments(args: Expression[]): Record<string, unknown> | undefin
   for (const property of args[0].properties ?? []) {
     const value = property.value as Expression | undefined;
     const key = property.key?.type === "Identifier" ? property.key.name : property.key?.value;
+    const literal = value === undefined ? undefined : literalArgument(value);
     if (
       property.type !== "Property" ||
       property.computed ||
       property.method ||
       property.kind !== "init" ||
       typeof key !== "string" ||
-      value?.type !== "Literal" ||
-      !["string", "number", "boolean"].includes(typeof value.value)
+      literal === undefined
     )
       return undefined;
-    entries.push([key, value.value]);
+    entries.push([key, literal]);
   }
   return Object.fromEntries(entries);
+}
+
+function literalArgument(value: Expression): string | number | boolean | string[] | undefined {
+  if (value.type === "Literal" && ["string", "number", "boolean"].includes(typeof value.value))
+    return value.value as string | number | boolean;
+  if (value.type !== "ArrayExpression" || value.elements === undefined) return undefined;
+  const items: string[] = [];
+  for (const element of value.elements) {
+    if (element?.type !== "Literal" || typeof element.value !== "string") return undefined;
+    items.push(element.value);
+  }
+  return items;
 }
 
 // Discovery may open a tool panel before performing the saved operation. Those

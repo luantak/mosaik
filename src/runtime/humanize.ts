@@ -67,9 +67,11 @@ const contextPointers = new WeakMap<BrowserContext, ContextPointerState>();
 const pointerPositions = new WeakMap<Page, Point>();
 const instrumentedMice = new WeakMap<Mouse, Mouse["move"]>();
 const CLICK_NAVIGATION_DETECTION_MS = 250;
+const INPUT_RELEASE_CLEANUP_MS = 250;
 let keyboardGuardSequence = 0;
 
 const dispatchedClickErrors = new WeakSet<object>();
+const dispatchedUploadErrors = new WeakSet<object>();
 
 export function wasHumanizedClickDispatched(error: unknown): boolean {
   return typeof error === "object" && error !== null && dispatchedClickErrors.has(error);
@@ -79,6 +81,17 @@ function markHumanizedClickDispatched(error: unknown): object {
   const dispatchedError =
     typeof error === "object" && error !== null ? error : new Error(String(error));
   dispatchedClickErrors.add(dispatchedError);
+  return dispatchedError;
+}
+
+export function wasUploadDispatched(error: unknown): boolean {
+  return typeof error === "object" && error !== null && dispatchedUploadErrors.has(error);
+}
+
+function markUploadDispatched(error: unknown): object {
+  const dispatchedError =
+    typeof error === "object" && error !== null ? error : new Error(String(error));
+  dispatchedUploadErrors.add(dispatchedError);
   return dispatchedError;
 }
 
@@ -207,17 +220,24 @@ export function isPageHumanized(page: Page): boolean {
   return humanizedPages.has(page);
 }
 
+interface HumanizedClickOptions {
+  timeout?: number;
+  button?: "left" | "right" | "middle";
+  clickCount?: number;
+  modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift">;
+}
+
 export async function humanizedClick(
   page: Page,
   target: Locator,
-  options: { timeout?: number } = {},
+  options: HumanizedClickOptions = {},
 ): Promise<void> {
   const state = humanizedPages.get(page);
   if (state === undefined) {
     await target.click(options);
     return;
   }
-  await humanizedClickWithDeadline(page, state, target, createDeadline(options.timeout));
+  await humanizedClickWithDeadline(page, state, target, createDeadline(options.timeout), options);
 }
 
 async function humanizedClickWithDeadline(
@@ -225,6 +245,7 @@ async function humanizedClickWithDeadline(
   state: HumanizationState,
   target: Locator,
   deadline: InteractionDeadline,
+  options: Omit<HumanizedClickOptions, "timeout"> = {},
 ): Promise<ElementHandle<HTMLElement | SVGElement>> {
   await deadlineRace(state.initialization ?? Promise.resolve(), deadline);
   await stopIdle(state);
@@ -234,42 +255,65 @@ async function humanizedClickWithDeadline(
   if (!(await target.isEnabled(deadlineOptions(deadline)))) {
     throw new Error("Humanized click target is not actionable at the pointer");
   }
-  await humanizedScrollIntoView(page, state, target, deadline);
+  await humanizedScrollTargetIntoView(page, state, target, deadline);
   const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
   if (intendedTarget === null) {
     throw new Error("Humanized click target is not actionable at the pointer");
   }
   const box = await deadlineRace(intendedTarget.boundingBox(), deadline);
   if (box === null) throw new Error("Humanized click target has no visible bounding box");
-  const destination = pointInside(box);
+  const destination = pointInsideVisibleViewport(box, page.viewportSize());
   await ensureActionableAt(intendedTarget, destination, deadline);
   await moveMouse(page, state, destination, undefined, undefined, deadline);
   await deadlineDelay(randomInteger(45, 120), deadline);
   await ensureActionableAt(intendedTarget, state.position, deadline);
   remainingTimeout(deadline);
   const navigation = monitorClickNavigation(page, deadline);
+  const button = options.button ?? "left";
+  const clickCount = options.clickCount ?? 1;
+  const modifiers = options.modifiers ?? [];
   let mouseDown = false;
-  const mouseDownTask = page.mouse.down();
-  mouseDown = true;
+  let failure: unknown;
   try {
-    try {
-      await deadlineRace(mouseDownTask, deadline);
-    } catch (error) {
-      void mouseDownTask.then(() => page.mouse.up()).catch(() => undefined);
-      throw error;
-    }
-    mouseDown = true;
-    try {
-      await deadlineDelay(randomInteger(35, 95), deadline);
-    } finally {
-      await deadlineRace(page.mouse.up(), deadline);
+    for (const modifier of modifiers) await deadlineRace(page.keyboard.down(modifier), deadline);
+    for (let count = 1; count <= clickCount; count += 1) {
+      await ensureActionableAt(intendedTarget, state.position, deadline);
+      const mouseDownTask = page.mouse.down({ button, clickCount: count });
+      mouseDown = true;
+      try {
+        await deadlineRace(mouseDownTask, deadline);
+      } catch (error) {
+        void mouseDownTask
+          .then(() => page.mouse.up({ button, clickCount: count }))
+          .catch(() => undefined);
+        throw error;
+      }
+      try {
+        await deadlineDelay(randomInteger(35, 95), deadline);
+      } finally {
+        await deadlineRace(page.mouse.up({ button, clickCount: count }), deadline);
+      }
+      if (count < clickCount) await deadlineDelay(randomInteger(45, 110), deadline);
     }
     await navigation.waitForNavigation();
   } catch (error) {
-    throw mouseDown ? markHumanizedClickDispatched(error) : error;
+    failure = mouseDown ? markHumanizedClickDispatched(error) : error;
   } finally {
     navigation.dispose();
+    const releases = await Promise.allSettled(
+      [...modifiers]
+        .reverse()
+        .map((modifier) => deadlineRace(page.keyboard.up(modifier), deadline)),
+    );
+    const releaseFailure = releases.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure === undefined && releaseFailure !== undefined)
+      failure = mouseDown
+        ? markHumanizedClickDispatched(releaseFailure.reason)
+        : releaseFailure.reason;
   }
+  if (failure !== undefined) throw failure;
   return intendedTarget;
 }
 
@@ -325,21 +369,26 @@ async function ensureActionableAt(
   target: Locator | ElementHandle<HTMLElement | SVGElement>,
   point: Point,
   deadline: InteractionDeadline,
+  requireEnabled = true,
 ): Promise<void> {
   const actionable = await deadlineRace(
-    (target as unknown as ElementEvaluationTarget).evaluate((element, { x, y }) => {
-      const hit = document.elementFromPoint(x, y);
-      return (
-        element.isConnected &&
-        !element.matches(":disabled") &&
-        element.closest('[aria-disabled="true"]') === null &&
-        hit !== null &&
-        (hit === element || element.contains(hit))
-      );
-    }, point),
+    (target as unknown as ElementEvaluationTarget).evaluate(
+      (element, { x, y, requireEnabled }) => {
+        const hit = document.elementFromPoint(x, y);
+        return (
+          element.isConnected &&
+          (!requireEnabled ||
+            (!element.matches(":disabled") &&
+              element.closest('[aria-disabled="true"]') === null)) &&
+          hit !== null &&
+          (hit === element || element.contains(hit))
+        );
+      },
+      { ...point, requireEnabled },
+    ),
     deadline,
   );
-  if (!actionable) throw new Error("Humanized click target is not actionable at the pointer");
+  if (!actionable) throw new Error("Humanized pointer target is not actionable at the pointer");
 }
 
 async function ensureTargetEnabled(target: Locator, deadline: InteractionDeadline): Promise<void> {
@@ -356,12 +405,184 @@ async function ensureTargetEnabled(target: Locator, deadline: InteractionDeadlin
   if (!enabled) throw new Error("Humanized target is disabled or not actionable");
 }
 
-async function humanizedScrollIntoView(
+export async function humanizedHover(
+  page: Page,
+  target: Locator,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const state = humanizedPages.get(page);
+  if (state === undefined) return target.hover(options);
+  const deadline = createDeadline(options.timeout);
+  const intendedTarget = await preparePointerTarget(page, state, target, deadline, false);
+  const box = await deadlineRace(intendedTarget.boundingBox(), deadline);
+  if (box === null) throw new Error("Humanized hover target has no visible bounding box");
+  await moveMouse(
+    page,
+    state,
+    pointInsideVisibleViewport(box, page.viewportSize()),
+    undefined,
+    undefined,
+    deadline,
+  );
+  await ensureActionableAt(intendedTarget, state.position, deadline, false);
+}
+
+export async function humanizedUpload(
+  page: Page,
+  target: Locator,
+  file: string,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const state = humanizedPages.get(page);
+  if (state === undefined) {
+    try {
+      await target.setInputFiles(file, options);
+    } catch (error) {
+      throw markUploadDispatched(error);
+    }
+    return;
+  }
+  const deadline = createDeadline(options.timeout);
+  await deadlineRace(state.initialization ?? Promise.resolve(), deadline);
+  await stopIdle(state);
+  try {
+    await deadlineRace(
+      withHumanizedWait(page, () => target.setInputFiles(file, deadlineOptions(deadline))),
+      deadline,
+    );
+  } catch (error) {
+    throw markUploadDispatched(error);
+  }
+}
+
+export async function humanizedDrag(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const state = humanizedPages.get(page);
+  if (state === undefined) return source.dragTo(target, options);
+  const deadline = createDeadline(options.timeout);
+  const intendedSource = await preparePointerTarget(page, state, source, deadline);
+  const sourceBox = await deadlineRace(intendedSource.boundingBox(), deadline);
+  if (sourceBox === null) throw new Error("Humanized drag source has no visible bounding box");
+  await moveMouse(
+    page,
+    state,
+    pointInsideVisibleViewport(sourceBox, page.viewportSize()),
+    undefined,
+    undefined,
+    deadline,
+  );
+  await ensureActionableAt(intendedSource, state.position, deadline);
+  let dispatched = false;
+  let released = false;
+  let mouseUpTask: Promise<void> | undefined;
+  try {
+    const mouseDownTask = page.mouse.down({ button: "left" });
+    try {
+      await deadlineRace(mouseDownTask, deadline);
+      dispatched = true;
+    } catch (error) {
+      try {
+        await mouseDownTask;
+        dispatched = true;
+      } catch {
+        throw error;
+      }
+      mouseUpTask = page.mouse.up({ button: "left" });
+      await deadlineRace(mouseUpTask, createDeadline(INPUT_RELEASE_CLEANUP_MS)).catch(
+        () => undefined,
+      );
+      released = true;
+      throw markHumanizedClickDispatched(error);
+    }
+    await deadlineDelay(randomInteger(60, 140), deadline);
+    await humanizedScrollTargetIntoView(page, state, target, deadline);
+    const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
+    if (intendedTarget === null) throw new Error("Humanized drag target is not actionable");
+    const targetBox = await deadlineRace(intendedTarget.boundingBox(), deadline);
+    if (targetBox === null) throw new Error("Humanized drag target has no visible bounding box");
+    await moveMouse(
+      page,
+      state,
+      pointInsideVisibleViewport(targetBox, page.viewportSize()),
+      undefined,
+      undefined,
+      deadline,
+    );
+    await deadlineDelay(randomInteger(80, 180), deadline);
+    await ensureActionableAt(intendedTarget, state.position, deadline);
+    mouseUpTask = page.mouse.up({ button: "left" });
+    await deadlineRace(mouseUpTask, deadline);
+    released = true;
+  } catch (error) {
+    if (dispatched) {
+      if (!released) {
+        mouseUpTask ??= page.mouse.up({ button: "left" });
+        await deadlineRace(mouseUpTask, createDeadline(INPUT_RELEASE_CLEANUP_MS)).catch(
+          () => undefined,
+        );
+      }
+      throw markHumanizedClickDispatched(error);
+    }
+    throw error;
+  }
+}
+
+async function preparePointerTarget(
+  page: Page,
+  state: HumanizationState,
+  target: Locator,
+  deadline: InteractionDeadline,
+  requireEnabled = true,
+): Promise<ElementHandle<HTMLElement | SVGElement>> {
+  await deadlineRace(state.initialization ?? Promise.resolve(), deadline);
+  await stopIdle(state);
+  await withHumanizedWait(page, () =>
+    target.waitFor({ state: "visible", ...deadlineOptions(deadline) }),
+  );
+  if (requireEnabled) await ensureTargetEnabled(target, deadline);
+  await humanizedScrollTargetIntoView(page, state, target, deadline);
+  const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
+  if (intendedTarget === null) throw new Error("Humanized target is not actionable");
+  return intendedTarget;
+}
+
+async function humanizedScrollTargetIntoView(
   page: Page,
   state: HumanizationState,
   target: Locator,
   deadline?: InteractionDeadline,
 ): Promise<void> {
+  // Viewport intersection alone cannot detect clipping by nested scroll containers.
+  // Let Playwright reveal those targets; wheel input depends on which container
+  // happens to be under the pointer.
+  const nestedScroll = await target.evaluate(
+    (element) => {
+      for (
+        let parent = element.parentElement;
+        parent && parent !== document.documentElement;
+        parent = parent.parentElement
+      ) {
+        const style = getComputedStyle(parent);
+        if (
+          (/(auto|scroll|hidden)/.test(style.overflowY) &&
+            parent.scrollHeight > parent.clientHeight) ||
+          (/(auto|scroll|hidden)/.test(style.overflowX) && parent.scrollWidth > parent.clientWidth)
+        )
+          return true;
+      }
+      return false;
+    },
+    undefined,
+    deadlineOptions(deadline),
+  );
+  if (nestedScroll) {
+    await target.scrollIntoViewIfNeeded(deadlineOptions(deadline));
+    return;
+  }
   const viewport = await deadlineRace(pageViewport(page), deadline);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const rect = await target.evaluate(
@@ -372,13 +593,7 @@ async function humanizedScrollIntoView(
       undefined,
       deadlineOptions(deadline),
     );
-    if (
-      rect.top >= 12 &&
-      rect.right <= viewport.width - 12 &&
-      rect.bottom <= viewport.height - 12 &&
-      rect.left >= 12
-    )
-      return;
+    if (intersectsViewport(rect, viewport)) return;
     const deltaX =
       rect.left < 12 || rect.right > viewport.width - 12
         ? rect.left - viewport.width * randomNumber(0.35, 0.58)
@@ -400,6 +615,16 @@ async function humanizedScrollIntoView(
     ]);
     await deadlineDelay(randomInteger(45, 100), deadline);
   }
+  const finalRect = await target.evaluate(
+    (element) => {
+      const value = element.getBoundingClientRect();
+      return { top: value.top, right: value.right, bottom: value.bottom, left: value.left };
+    },
+    undefined,
+    deadlineOptions(deadline),
+  );
+  if (!intersectsViewport(finalRect, viewport))
+    throw new Error("Humanized scroll target did not enter the viewport");
 }
 
 function scrollCompanionDestination(
@@ -609,7 +834,7 @@ async function ensureTargetFocused(
 export async function humanizedSelectOption(
   page: Page,
   target: Locator,
-  value: string,
+  value: string | string[],
   options: { timeout?: number } = {},
 ): Promise<string[]> {
   const state = humanizedPages.get(page);
@@ -622,7 +847,7 @@ export async function humanizedSelectOption(
     target.waitFor({ state: "visible", ...deadlineOptions(deadline) }),
   );
   await ensureTargetEnabled(target, deadline);
-  await humanizedScrollIntoView(page, state, target, deadline);
+  await humanizedScrollTargetIntoView(page, state, target, deadline);
   await withHumanizedWait(page, () => target.hover({ ...deadlineOptions(deadline), trial: true }));
   const intendedTarget = await target.elementHandle(deadlineOptions(deadline));
   if (intendedTarget === null) {
@@ -630,7 +855,14 @@ export async function humanizedSelectOption(
   }
   const box = await deadlineRace(intendedTarget.boundingBox(), deadline);
   if (box === null) throw new Error("Humanized select target has no visible bounding box");
-  await moveMouse(page, state, pointInside(box), undefined, undefined, deadline);
+  await moveMouse(
+    page,
+    state,
+    pointInsideVisibleViewport(box, page.viewportSize()),
+    undefined,
+    undefined,
+    deadline,
+  );
   await deadlineDelay(randomInteger(70, 180), deadline);
   await ensureSelectEnabled(intendedTarget, deadline);
   await ensureActionableAt(intendedTarget, state.position, deadline);
@@ -649,6 +881,21 @@ export async function humanizedSelectOption(
   }
   await deadlineDelay(randomInteger(70, 160), deadline);
   await ensureSelectKeyboardTarget(intendedTarget, deadline);
+
+  if (Array.isArray(value)) {
+    const multiple = await deadlineRace(
+      intendedTarget.evaluate((element) => (element as HTMLSelectElement).multiple),
+      deadline,
+    );
+    if (!multiple) throw new Error("Multiple select values require a multiple control");
+    const selected = await deadlineRace(
+      target.selectOption(value, deadlineOptions(deadline)),
+      deadline,
+    );
+    if (selected.length !== value.length || value.some((desired) => !selected.includes(desired)))
+      throw new Error("Select option values could not be selected");
+    return selected;
+  }
 
   const optionIndex = await deadlineRace(
     intendedTarget.evaluate((element, desired) => {
@@ -1173,6 +1420,31 @@ function pointInside(box: { x: number; y: number; width: number; height: number 
     x: randomNumber(box.x + horizontalInset, box.x + box.width - horizontalInset),
     y: randomNumber(box.y + verticalInset, box.y + box.height - verticalInset),
   };
+}
+
+function pointInsideVisibleViewport(
+  box: { x: number; y: number; width: number; height: number },
+  viewport: { width: number; height: number } | null,
+): Point {
+  if (viewport === null) return pointInside(box);
+  const left = Math.max(0, box.x);
+  const top = Math.max(0, box.y);
+  const right = Math.min(viewport.width, box.x + box.width);
+  const bottom = Math.min(viewport.height, box.y + box.height);
+  if (right <= left || bottom <= top) {
+    throw new Error("Humanized pointer target has no visible viewport intersection");
+  }
+  return pointInside({ x: left, y: top, width: right - left, height: bottom - top });
+}
+
+function intersectsViewport(
+  rect: { top: number; right: number; bottom: number; left: number },
+  viewport: { width: number; height: number },
+): boolean {
+  return (
+    Math.min(rect.right, viewport.width) > Math.max(rect.left, 0) &&
+    Math.min(rect.bottom, viewport.height) > Math.max(rect.top, 0)
+  );
 }
 
 function randomRange(range: readonly [number, number]): number {

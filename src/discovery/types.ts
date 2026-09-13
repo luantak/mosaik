@@ -12,7 +12,18 @@ export interface DiscoveryConstraints {
 }
 
 export const DEFAULT_DISCOVERY_CONSTRAINTS: DiscoveryConstraints = {
-  allowedStepTypes: ["navigate", "fill", "select", "click", "extract-text"],
+  allowedStepTypes: [
+    "back",
+    "navigate",
+    "fill",
+    "select",
+    "upload",
+    "click",
+    "hover",
+    "drag",
+    "extract-text",
+    "extract-list",
+  ],
   maxSteps: 16,
   maxExplorationActions: 40,
   maxModelRequests: 8,

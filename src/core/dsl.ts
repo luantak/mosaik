@@ -1,10 +1,14 @@
 import { compile } from "./compile.js";
 import type {
   Automation,
+  BackStep,
   ClickStep,
+  DragStep,
   ExtractListStep,
   ExtractTextStep,
   FillStep,
+  HoverStep,
+  InputReference,
   ListField,
   LocatorDefinition,
   LocatorScope,
@@ -12,6 +16,7 @@ import type {
   SelectStep,
   Step,
   StepValue,
+  UploadStep,
 } from "./types.js";
 
 /**
@@ -36,11 +41,27 @@ export function automation(id: string, define: () => Step[]): Automation {
   });
 }
 
+export function back(input: Omit<BackStep, "type">): BackStep {
+  return { ...input, type: "back" };
+}
+
 export function click(input: Omit<ClickStep, "type">): ClickStep {
   return { ...input, type: "click" };
 }
+export function drag(
+  input: Omit<DragStep, "type" | "locator"> & { source: LocatorDefinition },
+): DragStep {
+  const { source, ...step } = input;
+  return { ...step, type: "drag", locator: source };
+}
+export function hover(input: Omit<HoverStep, "type">): HoverStep {
+  return { ...input, type: "hover" };
+}
 export function fill(input: Omit<FillStep, "type">): FillStep {
   return { ...input, type: "fill" };
+}
+export function upload(input: Omit<UploadStep, "type">): UploadStep {
+  return { ...input, type: "upload" };
 }
 export function select(input: Omit<SelectStep, "type">): SelectStep {
   return { ...input, type: "select" };
@@ -69,7 +90,7 @@ export function urlField(name: string, locator?: LocatorDefinition): ListField {
   return locator === undefined ? { source: "url", name } : { source: "url", name, locator };
 }
 
-export function inputRef(key: string): StepValue {
+export function inputRef(key: string): InputReference {
   return { kind: "input", key };
 }
 

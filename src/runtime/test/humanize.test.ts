@@ -23,8 +23,11 @@ import {
   configurePageHumanization,
   enablePageHumanization,
   humanizedClick,
+  humanizedDrag,
   humanizedFill,
+  humanizedHover,
   humanizedSelectOption,
+  humanizedUpload,
   withHumanizedWait,
 } from "../humanize.js";
 import {
@@ -43,6 +46,117 @@ import {
   requireProtocolEntry,
   withBrowserPage,
 } from "./humanize.support.js";
+
+test("humanized hover, scroll, and drag use paced Playwright mouse input", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(`
+      <style>#spacer{height:900px} #source,#target,#scroll-target{display:inline-block;width:100px;height:50px}</style>
+      <div id="source" draggable="true">Source</div><div id="target">Target</div><div id="spacer"></div><div id="scroll-target">Scroll target</div>
+      <script>
+        window.moves = 0; window.wheels = 0; window.dropped = false;
+        document.addEventListener("mousemove", () => window.moves++);
+        document.addEventListener("wheel", () => window.wheels++);
+        target.ondragover = event => event.preventDefault();
+        target.ondrop = event => { event.preventDefault(); window.dropped = true; };
+      </script>
+    `);
+    await configurePageHumanization(page, true, { idle: false });
+    await humanizedHover(page, page.locator("#source"), { timeout: 3_000 });
+    await humanizedHover(page, page.locator("#scroll-target"), { timeout: 3_000 });
+    await humanizedDrag(page, page.locator("#source"), page.locator("#target"), {
+      timeout: 3_000,
+    });
+
+    const result = await page.evaluate(() => ({
+      moves: (window as unknown as { moves: number }).moves,
+      wheels: (window as unknown as { wheels: number }).wheels,
+      dropped: (window as unknown as { dropped: boolean }).dropped,
+    }));
+    assert.ok(result.moves > 3);
+    assert.ok(result.wheels > 1);
+    assert.equal(result.dropped, true);
+  });
+});
+
+test("humanized hover supports disabled elements", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(
+      "<button disabled onmouseenter=\"this.dataset.hovered='true'\">Disabled target</button>",
+    );
+    await configurePageHumanization(page, true, { idle: false });
+
+    const target = page.getByRole("button", { name: "Disabled target" });
+    await humanizedHover(page, target, { timeout: 3_000 });
+
+    assert.equal(await target.getAttribute("data-hovered"), "true");
+  });
+});
+
+test("humanized click preserves button, count, and modifiers", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(`
+      <button>Target</button><script>
+        window.events=[];
+        for (const type of ["click","dblclick","contextmenu"])
+          document.querySelector("button").addEventListener(type, event => window.events.push({type,button:event.button,detail:event.detail,shiftKey:event.shiftKey}));
+      </script>
+    `);
+    await configurePageHumanization(page, true, { idle: false });
+    const target = page.getByRole("button");
+    await humanizedClick(page, target, { button: "right", timeout: 3_000 });
+    await humanizedClick(page, target, { clickCount: 2, modifiers: ["Shift"], timeout: 3_000 });
+    const events = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            events: Array<{ type: string; button: number; detail: number; shiftKey: boolean }>;
+          }
+        ).events,
+    );
+    assert.ok(events.some((event) => event.type === "contextmenu" && event.button === 2));
+    assert.ok(events.some((event) => event.type === "dblclick" && event.detail === 2));
+    assert.ok(events.some((event) => event.type === "click" && event.shiftKey));
+  });
+});
+
+test("humanized select supports native multiple values", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(
+      '<select multiple><option value="one">One</option><option value="two">Two</option><option value="three">Three</option></select>',
+    );
+    await configurePageHumanization(page, true, { idle: false });
+    assert.deepEqual(
+      await humanizedSelectOption(page, page.locator("select"), ["one", "three"], {
+        timeout: 3_000,
+      }),
+      ["one", "three"],
+    );
+    assert.deepEqual(
+      await page
+        .locator("select")
+        .evaluate((element) =>
+          [...(element as HTMLSelectElement).selectedOptions].map((option) => option.value),
+        ),
+      ["one", "three"],
+    );
+  });
+});
+
+test("humanized upload supports hidden native file inputs", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent('<input id="file" type="file" hidden>');
+    await configurePageHumanization(page, true, { idle: false });
+
+    await humanizedUpload(page, page.locator("#file"), "package.json", { timeout: 3_000 });
+
+    assert.equal(
+      await page
+        .locator("#file")
+        .evaluate((element) => (element as HTMLInputElement).files?.[0]?.name),
+      "package.json",
+    );
+  });
+});
 
 test("disabled execution keeps the original timeout and humanization adds only its allowance", () => {
   assert.equal(DEFAULT_STEP_TIMEOUT_MS, 1_500);
@@ -502,6 +616,36 @@ test("executeStep keeps humanized click failures after mouse down uncertain", as
   });
 });
 
+test("executeStep keeps a completed humanized click uncertain when its declared dialog is absent", async () => {
+  await withBrowserPage(async (page) => {
+    ghostPathOverride.create = (_start, end) => [end];
+    try {
+      await page.setContent('<button style="width:100px;height:50px">Continue</button>');
+      enablePageHumanization(page, { idle: false });
+
+      const outcome = await executeStep(
+        page,
+        {
+          id: "continue",
+          type: "click",
+          safety: "browser-local",
+          locator: { strategy: "role", role: "button", name: "Continue" },
+          dialog: { action: "accept" },
+        },
+        1_000,
+      );
+
+      assert.equal(outcome.ok, false);
+      if (!outcome.ok) {
+        assert.equal(outcome.type, "uncertain-outcome");
+        assert.equal(outcome.actionPerformed, true);
+      }
+    } finally {
+      ghostPathOverride.create = undefined;
+    }
+  });
+});
+
 test("executeStep classifies a timed-out initiated mouse down as an uncertain outcome", async () => {
   await withBrowserPage(async (page) => {
     await page.setContent(`
@@ -532,6 +676,58 @@ test("executeStep classifies a timed-out initiated mouse down as an uncertain ou
     delayedDown.release();
     await delayedDown.settled;
     assert.equal(await page.evaluate(() => (window as unknown as { downs: number }).downs), 1);
+  });
+});
+
+test("timed-out humanized drag settles mouse down, releases the button, and stays uncertain", async () => {
+  await withBrowserPage(async (page) => {
+    ghostPathOverride.create = (_start, end) => [end];
+    try {
+      await page.setContent(`
+        <div id="source" draggable="true" style="position:absolute;left:20px;top:20px;width:80px;height:40px">Source</div>
+        <div id="target" style="position:absolute;left:300px;top:20px;width:80px;height:40px">Target</div>
+        <script>
+          window.events=[];
+          for (const type of ["mousedown", "mouseup"])
+            document.addEventListener(type, () => window.events.push(type));
+        </script>
+      `);
+      enablePageHumanization(page, { idle: false });
+      const delayedDown = blockMethodUntilReleased(page.mouse, "down");
+      let settled = false;
+      const operation = executeStep(
+        page,
+        {
+          id: "move",
+          type: "drag",
+          safety: "browser-local",
+          locator: { strategy: "css", selector: "#source" },
+          target: { strategy: "css", selector: "#target" },
+        },
+        1_000,
+      ).finally(() => {
+        settled = true;
+      });
+      await requireProtocolEntry(delayedDown.entered, operation);
+      await new Promise((resolve) => setTimeout(resolve, 1_050));
+      assert.equal(settled, false, "drag returned before its in-flight mouse down settled");
+
+      delayedDown.release();
+      const outcome = await operation;
+      await delayedDown.settled;
+
+      assert.equal(outcome.ok, false);
+      if (!outcome.ok) {
+        assert.equal(outcome.type, "uncertain-outcome");
+        assert.equal(outcome.actionPerformed, true);
+      }
+      assert.deepEqual(
+        await page.evaluate(() => (window as unknown as { events: string[] }).events),
+        ["mousedown", "mouseup"],
+      );
+    } finally {
+      ghostPathOverride.create = undefined;
+    }
   });
 });
 
@@ -2052,4 +2248,160 @@ test("cursor speed and route duration are deterministically about twenty percent
     assert.equal(newDuration, Math.round(oldDuration * 0.8));
     assert.ok(newDuration > 0, "cursor travel must remain paced rather than teleporting");
   }
+});
+
+test("humanized scroll accepts an oversized target with a visible viewport intersection", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.setContent(
+      '<div id="target" style="width:400px;height:1200px;background:#ccc">Target</div>',
+    );
+    await configurePageHumanization(page, true, { idle: false });
+
+    await humanizedHover(page, page.locator("#target"), { timeout: 3_000 });
+  });
+});
+
+test("humanized click chooses a point inside an oversized target's visible intersection", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.setContent(`
+      <button style="width:400px;height:1200px">Continue</button>
+      <script>window.clicks = 0; document.querySelector("button").onclick = () => window.clicks += 1;</script>
+    `);
+    await configurePageHumanization(page, true, { idle: false });
+    const moves: Array<{ x: number; y: number }> = [];
+    const originalMove = page.mouse.move.bind(page.mouse);
+    page.mouse.move = async (x, y, options) => {
+      moves.push({ x, y });
+      await originalMove(x, y, options);
+    };
+    ghostPathOverride.create = (_start, end) => [end];
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    try {
+      await humanizedClick(page, page.getByRole("button"), { timeout: 3_000 });
+      assert.equal(await page.evaluate(() => (window as unknown as { clicks: number }).clicks), 1);
+      const viewport = page.viewportSize();
+      assert.ok(viewport !== null);
+      assert.ok(moves.length > 0);
+      assert.ok(moves.at(-1)!.y >= 0);
+      assert.ok(moves.at(-1)!.y <= viewport.height);
+    } finally {
+      random.mockRestore();
+      ghostPathOverride.create = undefined;
+    }
+  });
+});
+
+test("humanized scroll fails when wheel input cannot bring the target into the viewport", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(
+      '<div id="target" style="position:fixed;top:900px;width:40px;height:40px">Target</div>',
+    );
+    await configurePageHumanization(page, true, { idle: false });
+
+    await assert.rejects(
+      humanizedHover(page, page.locator("#target"), { timeout: 3_000 }),
+      /viewport/,
+    );
+  });
+});
+
+test("humanized drag verifies the target remains actionable before release", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(`
+      <div id="source" draggable="true" style="width:80px;height:40px">Source</div>
+      <div id="target" style="width:80px;height:40px">Target</div>
+      <script>
+        target.ondragenter = () => {
+          const blocker = document.createElement("div");
+          blocker.style = "position:fixed;inset:0;z-index:10";
+          document.body.append(blocker);
+        };
+      </script>
+    `);
+    await configurePageHumanization(page, true, { idle: false });
+
+    await assert.rejects(
+      humanizedDrag(page, page.locator("#source"), page.locator("#target"), { timeout: 3_000 }),
+      /actionable/,
+    );
+  });
+});
+
+test("humanized click respects its deadline when modifier release never settles", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent('<button style="width:100px;height:50px">Continue</button>');
+    await configurePageHumanization(page, true, { idle: false });
+    ghostPathOverride.create = (_start, end) => [end];
+    const blocked = blockMethodUntilReleased(page.keyboard, "up");
+    const operation = humanizedClick(page, page.getByRole("button"), {
+      modifiers: ["Shift"],
+      timeout: 1_000,
+    });
+    try {
+      await requireProtocolEntry(blocked.entered, operation);
+      const outcome = await Promise.race([
+        operation.then(
+          () => "resolved",
+          () => "rejected",
+        ),
+        new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 2_000)),
+      ]);
+      assert.equal(outcome, "rejected");
+    } finally {
+      blocked.release();
+      await blocked.settled;
+      ghostPathOverride.create = undefined;
+    }
+  });
+});
+
+test("humanized drag respects its deadline when mouse-up recovery never settles", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(
+      '<div id="source" draggable="true" style="width:80px;height:40px">Source</div><div id="target" style="width:80px;height:40px">Target</div>',
+    );
+    await configurePageHumanization(page, true, { idle: false });
+    ghostPathOverride.create = (_start, end) => [end];
+    const blocked = blockMethodUntilReleased(page.mouse, "up");
+    const operation = humanizedDrag(page, page.locator("#source"), page.locator("#target"), {
+      timeout: 1_000,
+    });
+    try {
+      await requireProtocolEntry(blocked.entered, operation);
+      const outcome = await Promise.race([
+        operation.then(
+          () => "resolved",
+          () => "rejected",
+        ),
+        new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 2_000)),
+      ]);
+      assert.equal(outcome, "rejected");
+    } finally {
+      blocked.release();
+      await blocked.settled;
+      ghostPathOverride.create = undefined;
+    }
+  });
+});
+
+test("humanized scroll reveals targets clipped by a nested scroll container", async () => {
+  await withBrowserPage(async (page) => {
+    await page.setContent(
+      '<div style="height:80px;overflow:auto"><div style="height:200px"></div><button>Nested target</button></div>',
+    );
+    await configurePageHumanization(page, true, { idle: false });
+    const target = page.getByRole("button");
+    await humanizedHover(page, target, { timeout: 3_000 });
+    assert.equal(
+      await target.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return (
+          document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === element
+        );
+      }),
+      true,
+    );
+  });
 });

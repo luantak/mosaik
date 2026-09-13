@@ -141,10 +141,18 @@ export function compileSiteAction(action: SiteActionDefinition): SiteActionDefin
     });
     if (SAFETY_RANK[action.safety] < SAFETY_RANK[strongestSafety(implementation.steps)])
       throw new CompileError("Implementation exceeds action safety");
-    validateReferences(implementation, action.inputs);
+    const { steps: _steps, ...implementationConditions } = implementation;
+    validateReferences(implementationConditions, action.inputs);
     validateCondition(implementation.precondition);
     validateCondition(implementation.completion);
     for (const step of implementation.steps) {
+      if (step.type === "select") {
+        const { value, ...rest } = step;
+        validateReferences(rest, action.inputs);
+        validateReferences(value, action.inputs, { allowStringArray: true });
+      } else {
+        validateReferences(step, action.inputs);
+      }
       validateCondition(step.ready);
       validateCondition(step.completion);
       if (step.type === "extract-list") validateCondition(step.empty);

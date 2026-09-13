@@ -19,6 +19,7 @@ import {
   select,
   testId,
   textField,
+  upload,
 } from "../dsl.js";
 import { resolveStepValue } from "../types.js";
 
@@ -74,6 +75,67 @@ test("compile rejects duplicate step ids and empty locators", () => {
       }),
     /css locator needs a selector/,
   );
+});
+
+test("compile rejects invalid click variants and dialog responses", () => {
+  const invalid = (clickStep: Record<string, unknown>) =>
+    compile({
+      id: "invalid-click",
+      version: 1,
+      actions: [
+        {
+          id: "main",
+          name: "main",
+          steps: [
+            {
+              id: "click",
+              type: "click",
+              safety: "browser-local",
+              locator: role("button", { name: "Go" }),
+              ...clickStep,
+            } as never,
+          ],
+        },
+      ],
+    });
+  assert.throws(() => invalid({ button: "primary" }), /button/);
+  assert.throws(() => invalid({ modifiers: ["Shift", "Hyper"] }), /modifier/);
+  assert.throws(
+    () => invalid({ dialog: { action: "dismiss", promptText: "ignored" } }),
+    /dialog prompt/,
+  );
+});
+
+test("compile requires file uploads to use an input reference", () => {
+  assert.throws(
+    () =>
+      automation("unsafe-upload", () => [
+        upload({
+          id: "upload",
+          locator: label("File"),
+          file: "/tmp/report.pdf" as never,
+          safety: "external-side-effect",
+        }),
+      ]),
+    /input reference/,
+  );
+});
+
+test("compile rejects malformed upload input references", () => {
+  for (const file of [null, { kind: "input" }, { kind: "input", key: "" }]) {
+    assert.throws(
+      () =>
+        automation("invalid-upload", () => [
+          upload({
+            id: "upload",
+            locator: label("File"),
+            file: file as never,
+            safety: "external-side-effect",
+          }),
+        ]),
+      /upload file must be an input reference/,
+    );
+  }
 });
 
 test("compile preserves optional locator scope", () => {

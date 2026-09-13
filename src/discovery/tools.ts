@@ -72,9 +72,22 @@ export interface DiscoveryTools {
   exploreClick(input: {
     locator: LocatorDefinition;
     completion?: Condition;
+    button?: "left" | "right" | "middle";
+    clickCount?: 1 | 2;
+    modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift">;
+    dialog?: Extract<Step, { type: "click" }>["dialog"];
+  }): Promise<ExploreResult>;
+  exploreHover(input: { locator: LocatorDefinition }): Promise<ExploreResult>;
+  exploreDrag(input: {
+    source: LocatorDefinition;
+    target: LocatorDefinition;
   }): Promise<ExploreResult>;
   exploreFill(input: { locator: LocatorDefinition; value: string }): Promise<ExploreResult>;
-  exploreSelect(input: { locator: LocatorDefinition; value: string }): Promise<ExploreResult>;
+  exploreSelect(input: {
+    locator: LocatorDefinition;
+    value: string | string[];
+  }): Promise<ExploreResult>;
+  exploreUpload(input: { locator: LocatorDefinition; file: string }): Promise<ExploreResult>;
   exploreBack(): Promise<ExploreResult>;
   getDraft(): Promise<{ automation: Automation }>;
   addStep(input: { step: Step; beforeStepId?: string }): Promise<{ automation: Automation }>;
@@ -221,7 +234,28 @@ export function createDiscoveryTools(
         type: "click",
         safety: "browser-local",
         locator: input.locator,
+        ...(input.button === undefined ? {} : { button: input.button }),
+        ...(input.clickCount === undefined ? {} : { clickCount: input.clickCount }),
+        ...(input.modifiers === undefined ? {} : { modifiers: input.modifiers }),
+        ...(input.dialog === undefined ? {} : { dialog: input.dialog }),
         ...(input.completion === undefined ? {} : { completion: input.completion }),
+      });
+    },
+    async exploreHover(input) {
+      return explore(context, await page(), {
+        id: "explore-hover",
+        type: "hover",
+        safety: "read-only",
+        locator: input.locator,
+      });
+    },
+    async exploreDrag(input) {
+      return explore(context, await page(), {
+        id: "explore-drag",
+        type: "drag",
+        safety: "browser-local",
+        locator: input.source,
+        target: input.target,
       });
     },
     async exploreFill(input) {
@@ -242,16 +276,21 @@ export function createDiscoveryTools(
         value: input.value,
       });
     },
+    async exploreUpload(input) {
+      return explore(context, await page(), {
+        id: "explore-upload",
+        type: "upload",
+        safety: "external-side-effect",
+        locator: input.locator,
+        file: input.file,
+      });
+    },
     async exploreBack() {
-      bumpExploration(context);
-      const current = await page();
-      try {
-        await current.goBack({ waitUntil: "domcontentloaded" });
-        context.log.emit("exploration.action", { action: "back", url: current.url() });
-        return { ok: true, url: current.url(), explorationActions: context.explorationActions };
-      } catch (error) {
-        return failedExplore(context, current, error);
-      }
+      return explore(context, await page(), {
+        id: "explore-back",
+        type: "back",
+        safety: "browser-local",
+      });
     },
     async getDraft() {
       return { automation: structuredClone(context.draft) };
@@ -417,15 +456,6 @@ function bumpExploration(context: DiscoveryToolContext): void {
   context.explorationActions += 1;
 }
 
-function failedExplore(context: DiscoveryToolContext, page: Page, error: unknown): ExploreResult {
-  return {
-    ok: false,
-    url: page.url(),
-    error: error instanceof Error ? error.message : String(error),
-    explorationActions: context.explorationActions,
-  };
-}
-
 async function rejectAmbiguousLocator(page: Page, step: Step): Promise<void> {
   if (!hasLocator(step)) return;
   const matches = await resolveLocator(page, step.locator).count();
@@ -438,7 +468,11 @@ function rejectDraftStep(step: Step, request: DiscoveryRequest): void {
   if (step.type === "extract-text" && isCoarseExtractLocator(step.locator)) {
     throw new Error("extract-text locator is a document or root container");
   }
-  if ((step.type === "fill" || step.type === "select") && isStepValue(step.value)) {
+  if (
+    (step.type === "fill" || step.type === "select") &&
+    !Array.isArray(step.value) &&
+    isStepValue(step.value)
+  ) {
     if (step.value.kind === "input" && !(step.value.key in (request.inputs ?? {}))) {
       throw new Error(`Input key ${step.value.key} is not in the discovery request`);
     }
@@ -446,7 +480,8 @@ function rejectDraftStep(step: Step, request: DiscoveryRequest): void {
 }
 
 function normalizeStep(step: Step, inputs: Record<string, unknown> | undefined): Step {
-  if (step.type !== "fill" && step.type !== "select") return step;
+  if (step.type === "fill") return { ...step, value: normalizeValue(step.value, inputs) };
+  if (step.type !== "select" || Array.isArray(step.value)) return step;
   return { ...step, value: normalizeValue(step.value, inputs) };
 }
 

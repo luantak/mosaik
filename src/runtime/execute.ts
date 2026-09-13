@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Browser, Page } from "playwright";
+import type { Browser, Frame, Page } from "playwright";
 import {
   classify,
   hasLocator,
   promoteVerificationOnSuccess,
   recordFailedRun,
   recordSuccessfulRun,
+  resolveSelectValue,
   resolveStepValue,
   RunLog,
   type Action,
@@ -28,13 +29,22 @@ import { withIsolatedContext } from "./browser.js";
 import { ConditionError, captureBefore, waitCondition } from "./conditions.js";
 import { bindLocator, locatorLabel, resolveLocator } from "./locators.js";
 import { collectOverview } from "./overview.js";
-import { isBrowserSession, type BrowserSession } from "./session.js";
+import {
+  isBrowserSession,
+  wasDialogOperationPerformed,
+  withDialogResponse,
+  type BrowserSession,
+} from "./session.js";
 import {
   humanizedClick,
+  humanizedDrag,
   humanizedFill,
+  humanizedHover,
   humanizedSelectOption,
+  humanizedUpload,
   isPageHumanized,
   wasHumanizedClickDispatched,
+  wasUploadDispatched,
   withHumanizedWait,
 } from "./humanize.js";
 
@@ -234,8 +244,16 @@ export async function executeStep(
   try {
     // Resolve every input before reading or mutating the browser.
     if (hasLocator(step)) step = { ...step, locator: bindLocator(step.locator, inputs) };
-    if (step.type === "fill" || step.type === "select")
-      step = { ...step, value: resolveStepValue(step.value, inputs) };
+    if (step.type === "drag") step = { ...step, target: bindLocator(step.target, inputs) };
+    if (step.type === "click" && step.dialog?.promptText !== undefined) {
+      step = {
+        ...step,
+        dialog: { ...step.dialog, promptText: resolveStepValue(step.dialog.promptText, inputs) },
+      };
+    }
+    if (step.type === "fill") step = { ...step, value: resolveStepValue(step.value, inputs) };
+    if (step.type === "upload") step = { ...step, file: resolveStepValue(step.file, inputs) };
+    if (step.type === "select") step = { ...step, value: resolveSelectValue(step.value, inputs) };
     if (step.type === "extract-list") {
       step = {
         ...step,
@@ -271,12 +289,20 @@ export async function executeStep(
           before,
         );
       } catch (error) {
-        if (step.type === "click")
+        if (
+          step.type === "click" ||
+          step.type === "upload" ||
+          step.type === "drag" ||
+          step.type === "back"
+        )
           return {
             ok: false,
             type: "uncertain-outcome",
             actionPerformed: true,
-            message: `Click completed but result is unconfirmed: ${String(error)}`,
+            message:
+              step.type === "upload"
+                ? "File upload completed but result is unconfirmed"
+                : `${step.type} completed but result is unconfirmed: ${String(error)}`,
           };
         throw error;
       }
@@ -299,6 +325,34 @@ async function executeStepOperation(
 ): Promise<StepOutcome> {
   try {
     switch (step.type) {
+      case "back": {
+        let traversed = false;
+        const onFrameNavigated = (frame: Frame): void => {
+          if (frame === page.mainFrame()) traversed = true;
+        };
+        page.on("framenavigated", onFrameNavigated);
+        try {
+          const response = await withHumanizedWait(page, () =>
+            page.goBack({ waitUntil: "domcontentloaded", timeout: timeoutMs }),
+          );
+          if (response === null && !traversed)
+            return {
+              ok: false,
+              type: "navigation-failed",
+              message: "Browser Back could not traverse a history entry",
+            };
+        } catch (error) {
+          return {
+            ok: false,
+            type: "uncertain-outcome",
+            actionPerformed: true,
+            message: `Browser Back was attempted; outcome is unknown: ${String(error)}`,
+          };
+        } finally {
+          page.off("framenavigated", onFrameNavigated);
+        }
+        return { ok: true };
+      }
       case "navigate": {
         const target = resolveStepValue(step.url, inputs);
         const url = /^[a-z]+:\/\//i.test(target) ? target : new URL(target, page.url()).href;
@@ -329,12 +383,38 @@ async function executeStepOperation(
       }
       case "click": {
         const target = resolveLocator(page, step.locator);
-        if (!isPageHumanized(page)) await target.click({ timeout: timeoutMs, trial: true });
+        const clickOptions = {
+          timeout: timeoutMs,
+          ...(step.button === undefined ? {} : { button: step.button }),
+          ...(step.clickCount === undefined ? {} : { clickCount: step.clickCount }),
+          ...(step.modifiers === undefined ? {} : { modifiers: step.modifiers }),
+        };
+        if (!isPageHumanized(page)) await target.click({ ...clickOptions, trial: true });
         try {
-          if (isPageHumanized(page)) await humanizedClick(page, target, { timeout: timeoutMs });
-          else await target.click({ timeout: timeoutMs });
+          const performClick = () =>
+            isPageHumanized(page)
+              ? humanizedClick(page, target, clickOptions)
+              : target.click(clickOptions);
+          if (step.dialog === undefined) await performClick();
+          else
+            await withDialogResponse(
+              page,
+              {
+                action: step.dialog.action,
+                ...(step.dialog.promptText === undefined
+                  ? {}
+                  : { promptText: resolveStepValue(step.dialog.promptText, inputs) }),
+              },
+              timeoutMs,
+              performClick,
+            );
         } catch (error) {
-          if (isPageHumanized(page) && !wasHumanizedClickDispatched(error)) throw error;
+          if (
+            isPageHumanized(page) &&
+            !wasHumanizedClickDispatched(error) &&
+            !wasDialogOperationPerformed(error)
+          )
+            throw error;
           return {
             ok: false,
             type: "uncertain-outcome",
@@ -343,6 +423,27 @@ async function executeStepOperation(
           };
         }
         return { ok: true };
+      }
+      case "hover":
+        await humanizedHover(page, resolveLocator(page, step.locator), { timeout: timeoutMs });
+        return { ok: true };
+      case "drag": {
+        const source = resolveLocator(page, step.locator);
+        const target = resolveLocator(page, step.target);
+        if (!isPageHumanized(page))
+          await source.dragTo(target, { timeout: timeoutMs, trial: true });
+        try {
+          await humanizedDrag(page, source, target, { timeout: timeoutMs });
+          return { ok: true };
+        } catch (error) {
+          if (isPageHumanized(page) && !wasHumanizedClickDispatched(error)) throw error;
+          return {
+            ok: false,
+            type: "uncertain-outcome",
+            actionPerformed: true,
+            message: `Drag was attempted; outcome is unknown: ${String(error)}`,
+          };
+        }
       }
       case "fill":
         await humanizedFill(
@@ -354,11 +455,29 @@ async function executeStepOperation(
           },
         );
         return { ok: true };
+      case "upload":
+        try {
+          await humanizedUpload(
+            page,
+            resolveLocator(page, step.locator),
+            resolveStepValue(step.file, inputs),
+            { timeout: timeoutMs },
+          );
+          return { ok: true };
+        } catch (error) {
+          if (!wasUploadDispatched(error)) throw error;
+          return {
+            ok: false,
+            type: "uncertain-outcome",
+            actionPerformed: true,
+            message: "File upload was attempted; outcome is unknown",
+          };
+        }
       case "select":
         await humanizedSelectOption(
           page,
           resolveLocator(page, step.locator),
-          resolveStepValue(step.value, inputs),
+          resolveSelectValue(step.value, inputs),
           {
             timeout: timeoutMs,
           },

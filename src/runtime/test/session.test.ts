@@ -9,6 +9,7 @@ import {
   openBrowserSession,
   openInteractiveBrowserSession,
   sharedContextSession,
+  withDialogResponse,
 } from "../session.js";
 import { startFixtureServer } from "../fixtures.js";
 import { isPageHumanized } from "../humanize.js";
@@ -194,5 +195,23 @@ test("browser sessions humanize pages only when enabled", async () => {
     await humanized.withPage(async (page) => assert.equal(isPageHumanized(page), true));
   } finally {
     await Promise.all([regular.close(), humanized.close()]);
+  }
+});
+
+test("dialog response timeout does not wait for an in-flight click that never settles", async () => {
+  const session = await openBrowserSession();
+  try {
+    await session.withPage(async (page) => {
+      const operation = new Promise<void>(() => {});
+      const started = Date.now();
+
+      await assert.rejects(
+        withDialogResponse(page, { action: "dismiss" }, 10, () => operation),
+        /Expected JavaScript dialog did not open/,
+      );
+      assert.ok(Date.now() - started < 500);
+    });
+  } finally {
+    await session.close();
   }
 });

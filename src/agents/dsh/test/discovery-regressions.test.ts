@@ -29,6 +29,143 @@ const tabs = `
 const locatorCode = `const locator = {strategy:"role", role:"tab", name:"Details", exact:true};`;
 const candidateCode = `const candidate = {name:"selectDetails", description:"Select the details tab", safety:"browser-local", inputs:[], outputs:[], steps:[{id:"select", type:"click", locator, safety:"browser-local", completion:JSON.stringify({kind:"changed",locator})}]};`;
 
+test("discovery schema can explore and save browser Back", async () => {
+  const fixture = await startFixtureServer({
+    "/first": { html: "<h1>First</h1>" },
+    "/second": { html: "<h1>Second</h1>" },
+  });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      const session = createActionDiscoverySession({ registry, siteId });
+      const result = await runActionDiscoveryCode(
+        { session, browser, startUrl: new URL("/first", fixture.url).href, task: "Go back" },
+        `await tools.exploreNavigate({url:${JSON.stringify(new URL("/second", fixture.url).href)}});
+         const back=await tools.exploreBack({});
+         if(!back.ok) throw new Error(JSON.stringify(back));
+         return tools.submitAction({name:"goBack",description:"Return to the previous page",safety:"browser-local",inputs:[],outputs:[],steps:[{id:"back",type:"back",safety:"browser-local"}]});`,
+      );
+      assert.ok(result.value);
+      assert.equal((await registry.list(siteId))[0]?.implementation.steps[0]?.type, "back");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("discovery rejects a persisted Back step that was not explored", async () => {
+  const fixture = await startFixtureServer({ "/": { html: "<h1>Page</h1>" } });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      await assert.rejects(
+        runActionDiscoveryCode(
+          {
+            session: createActionDiscoverySession({ registry, siteId }),
+            browser,
+            startUrl: fixture.url,
+            task: "Go back",
+          },
+          `await tools.exploreNavigate({url:${JSON.stringify(fixture.url)}});
+           return tools.submitAction({name:"goBack",description:"Return to the previous page",safety:"browser-local",inputs:[],outputs:[],steps:[{id:"back",type:"back",safety:"browser-local"}]});`,
+        ),
+        /Step back has not been performed/,
+      );
+      assert.equal((await registry.list(siteId)).length, 0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("discovery rejects a persisted drag step that was not explored", async () => {
+  const fixture = await startFixtureServer({
+    "/": { html: '<div id="source">Source</div><div id="target">Target</div>' },
+  });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      await assert.rejects(
+        runActionDiscoveryCode(
+          {
+            session: createActionDiscoverySession({ registry, siteId }),
+            browser,
+            startUrl: fixture.url,
+            task: "Move the card",
+          },
+          `await tools.exploreNavigate({url:${JSON.stringify(fixture.url)}});
+           return tools.submitAction({name:"moveCard",description:"Move the card",safety:"browser-local",inputs:[],outputs:[],steps:[{id:"move",type:"drag",safety:"browser-local",locator:{strategy:"css",selector:"#source"},target:{strategy:"css",selector:"#target"}}]});`,
+        ),
+        /Step move has not been performed/,
+      );
+      assert.equal((await registry.list(siteId)).length, 0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("discovery requires performed evidence for read-only hover", async () => {
+  const fixture = await startFixtureServer({ "/": { html: '<button id="menu">Menu</button>' } });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      await assert.rejects(
+        runActionDiscoveryCode(
+          {
+            session: createActionDiscoverySession({ registry, siteId }),
+            browser,
+            startUrl: fixture.url,
+            task: "Hover the menu",
+          },
+          `const locator={strategy:"css",selector:"#menu"};
+           await tools.exploreNavigate({url:${JSON.stringify(fixture.url)}});
+           const tested=await tools.testLocator({locator});
+           if(!tested.ok) throw new Error(JSON.stringify(tested));
+           return tools.submitAction({name:"hoverMenu",description:"Hover the menu",safety:"read-only",inputs:[],outputs:[],steps:[{id:"hover",type:"hover",safety:"read-only",locator}]});`,
+        ),
+        /Step hover has not been performed/,
+      );
+      assert.equal((await registry.list(siteId)).length, 0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("discovery records navigation evidence before saving a navigate step", async () => {
+  const fixture = await startFixtureServer({
+    "/": { html: "<main>Start</main>" },
+    "/editor": { html: "<main>Editor</main>" },
+  });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      const destination = new URL("/editor", fixture.url).href;
+      const result = await runActionDiscoveryCode(
+        {
+          session: createActionDiscoverySession({ registry, siteId }),
+          browser,
+          startUrl: fixture.url,
+          task: "Open the editor",
+        },
+        `const opened=await tools.exploreNavigate({url:${JSON.stringify(destination)}});
+         if(!opened.ok) throw new Error(JSON.stringify(opened));
+         return tools.submitAction({name:"openEditor",description:"Open the editor",safety:"read-only",inputs:[],outputs:[],steps:[{id:"open",type:"navigate",url:${JSON.stringify(destination)},safety:"read-only"}]});`,
+      );
+      assert.ok(result.value);
+      assert.equal((await registry.list(siteId))[0]?.implementation.steps[0]?.type, "navigate");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("discovery rejects an invented text-change completion without saving or replaying the click", async () => {
   const fixture = await startFixtureServer({ "/": { html: tabs } });
   try {
@@ -814,6 +951,102 @@ test("absolute link filters report the literal href without guessing a replaceme
         value.attributeTargets.map(({ href, destinationUrl }) => ({ href, destinationUrl })),
         [{ href: "/editor", destinationUrl: new URL("/editor", fixture.url).href }],
       );
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("input-backed prompt responses match the click observed during discovery", async () => {
+  const fixture = await startFixtureServer({
+    "/": {
+      html: "<button onclick=\"document.querySelector('output').textContent=prompt('Name?')\">Set name</button><output></output>",
+    },
+  });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      const result = await runActionDiscoveryCode(
+        {
+          session: createActionDiscoverySession({ registry, siteId }),
+          browser,
+          startUrl: fixture.url,
+          task: "Set the name",
+          taskInputs: { name: "Ada" },
+        },
+        `
+        const locator={strategy:"role",role:"button",name:"Set name",exact:true};
+        const clicked=await tools.exploreClick({locator,dialog:{action:"accept",promptInputKey:"name"}});
+        if(!clicked.ok) throw new Error(JSON.stringify(clicked));
+        return await tools.submitAction({name:"setName",description:"Set the name",safety:"browser-local",inputs:[{key:"name",type:"string"}],outputs:[],steps:[{id:"set",type:"click",locator,safety:"browser-local",dialog:{action:"accept",promptInputKey:"name"}}]});
+      `,
+      );
+
+      assert.ok(result);
+      assert.equal((await registry.list(siteId)).length, 1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("an uncertain explored upload is recorded so discovery never replays it", async () => {
+  const fixture = await startFixtureServer({
+    "/": { html: '<label for="file">Report</label><input id="file" type="file">' },
+  });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      const sentinel = "/private/UPLOAD_DISCOVERY_SENTINEL.txt";
+      await runActionDiscoveryCode(
+        {
+          session: createActionDiscoverySession({ registry, siteId }),
+          browser,
+          startUrl: fixture.url,
+          task: "Upload the report",
+          taskInputs: { path: sentinel },
+        },
+        `
+        const locator={strategy:"label",label:"Report",exact:true};
+        const explored=await tools.exploreUpload({locator,inputKey:"path"});
+        if(explored.ok || !explored.actionPerformed || explored.error.includes("UPLOAD_DISCOVERY_SENTINEL")) throw new Error(JSON.stringify(explored));
+        return tools.submitAction({name:"uploadReport",description:"Upload the report",safety:"external-side-effect",inputs:[{key:"path",type:"string"}],outputs:[],steps:[{id:"upload",type:"upload",locator,safety:"external-side-effect",valueKind:"input",valueKey:"path"}]});
+      `,
+      );
+
+      assert.equal((await registry.list(siteId)).length, 1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("same-node click evidence cannot validate different click options", async () => {
+  const fixture = await startFixtureServer({ "/": { html: "<button>Target</button>" } });
+  try {
+    await withBrowser(async (browser) => {
+      const siteId = new URL(fixture.url).host;
+      const registry = createMemoryRegistry();
+      await assert.rejects(
+        runActionDiscoveryCode(
+          {
+            session: createActionDiscoverySession({ registry, siteId }),
+            browser,
+            startUrl: fixture.url,
+            task: "Double-click the target",
+          },
+          `
+        const locator={strategy:"role",role:"button",name:"Target",exact:true};
+        const clicked=await tools.exploreClick({locator});
+        if(!clicked.ok) throw new Error(JSON.stringify(clicked));
+        return tools.submitAction({name:"doubleClick",description:"Double-click the target",safety:"browser-local",inputs:[],outputs:[],steps:[{id:"double",type:"click",locator,clickCount:2}]});
+      `,
+        ),
+        /Step double has not been performed/,
+      );
+      assert.equal((await registry.list(siteId)).length, 0);
     });
   } finally {
     await fixture.close();

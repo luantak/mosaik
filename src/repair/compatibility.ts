@@ -10,6 +10,7 @@ export interface CompatibilityResult {
 const CLICK_ROLES = new Set(["button", "link"]);
 const FILL_ROLES = new Set(["textbox", "searchbox"]);
 const SELECT_ROLES = new Set(["combobox", "listbox"]);
+const UPLOAD_ROLES = new Set(["button"]);
 
 export function rolesForStep(step: Step): Set<string> | undefined {
   switch (step.type) {
@@ -19,6 +20,8 @@ export function rolesForStep(step: Step): Set<string> | undefined {
       return FILL_ROLES;
     case "select":
       return SELECT_ROLES;
+    case "upload":
+      return UPLOAD_ROLES;
     default:
       return undefined;
   }
@@ -48,6 +51,7 @@ export function impliedStepRole(step: Step): string | undefined {
   if (step.type === "click") return "button";
   if (step.type === "fill") return "textbox";
   if (step.type === "select") return "combobox";
+  if (step.type === "upload") return "button";
   return undefined;
 }
 

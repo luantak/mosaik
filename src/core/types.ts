@@ -68,13 +68,41 @@ export interface ClickStep extends StepConditions {
   type: "click";
   safety: StepSafety;
   locator: LocatorDefinition;
+  button?: "left" | "right" | "middle";
+  clickCount?: 1 | 2;
+  modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift">;
+  dialog?: {
+    action: "accept" | "dismiss";
+    promptText?: FillValue;
+  };
 }
 
-export type StepValue =
-  | { kind: "literal"; value: string }
-  | { kind: "input"; key: string; prefix?: string; suffix?: string };
+export interface HoverStep extends StepConditions {
+  id: string;
+  type: "hover";
+  safety: StepSafety;
+  locator: LocatorDefinition;
+}
+
+export interface DragStep extends StepConditions {
+  id: string;
+  type: "drag";
+  safety: StepSafety;
+  locator: LocatorDefinition;
+  target: LocatorDefinition;
+}
+
+export interface InputReference {
+  kind: "input";
+  key: string;
+  prefix?: string;
+  suffix?: string;
+}
+
+export type StepValue = { kind: "literal"; value: string } | InputReference;
 
 export type FillValue = string | StepValue;
+export type SelectValue = FillValue | string[];
 
 export interface FillStep extends StepConditions {
   id: string;
@@ -84,12 +112,20 @@ export interface FillStep extends StepConditions {
   value: FillValue;
 }
 
+export interface UploadStep extends StepConditions {
+  id: string;
+  type: "upload";
+  safety: StepSafety;
+  locator: LocatorDefinition;
+  file: FillValue;
+}
+
 export interface SelectStep extends StepConditions {
   id: string;
   type: "select";
   safety: StepSafety;
   locator: LocatorDefinition;
-  value: FillValue;
+  value: SelectValue;
 }
 
 export interface NavigateStep extends StepConditions {
@@ -97,6 +133,12 @@ export interface NavigateStep extends StepConditions {
   type: "navigate";
   safety: StepSafety;
   url: FillValue;
+}
+
+export interface BackStep extends StepConditions {
+  id: string;
+  type: "back";
+  safety: StepSafety;
 }
 
 export interface ExtractTextStep extends StepConditions {
@@ -124,9 +166,13 @@ export interface ExtractListStep extends StepConditions {
 }
 
 export type Step =
+  | BackStep
   | ClickStep
+  | DragStep
+  | HoverStep
   | FillStep
   | SelectStep
+  | UploadStep
   | NavigateStep
   | ExtractTextStep
   | ExtractListStep;
@@ -328,6 +374,30 @@ export function resolveStepValue(value: FillValue, inputs: Record<string, unknow
   return (value.prefix ?? "") + String(resolved) + (value.suffix ?? "");
 }
 
+export function resolveSelectValue(
+  value: SelectValue,
+  inputs: Record<string, unknown> = {},
+): string | string[] {
+  if (Array.isArray(value)) return validateStringList(value, "Select values");
+  if (typeof value === "string" || value.kind === "literal") return resolveStepValue(value, inputs);
+  const resolved = lookupInput(inputs, value.key);
+  if (!Array.isArray(resolved)) return resolveStepValue(value, inputs);
+  if (value.prefix !== undefined || value.suffix !== undefined) {
+    throw new Error("Select list inputs cannot use a prefix or suffix");
+  }
+  return validateStringList(resolved, `Select input ${value.key}`);
+}
+
+function validateStringList(value: unknown[], label: string): string[] {
+  if (
+    value.length === 0 ||
+    value.some((entry) => typeof entry !== "string" || entry.length === 0)
+  ) {
+    throw new Error(`${label} must be a non-empty array of non-empty strings`);
+  }
+  return value as string[];
+}
+
 export function lookupInput(inputs: Record<string, unknown>, key: string): unknown {
   if (Object.hasOwn(inputs, key)) return inputs[key];
   const parts = key.split(".");
@@ -342,11 +412,22 @@ export function lookupInput(inputs: Record<string, unknown>, key: string): unkno
 
 export function hasLocator(
   step: Step,
-): step is ClickStep | FillStep | SelectStep | ExtractTextStep | ExtractListStep {
+): step is
+  | ClickStep
+  | DragStep
+  | HoverStep
+  | FillStep
+  | SelectStep
+  | UploadStep
+  | ExtractTextStep
+  | ExtractListStep {
   return (
     step.type === "click" ||
+    step.type === "drag" ||
+    step.type === "hover" ||
     step.type === "fill" ||
     step.type === "select" ||
+    step.type === "upload" ||
     step.type === "extract-text" ||
     step.type === "extract-list"
   );
