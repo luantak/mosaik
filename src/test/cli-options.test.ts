@@ -10,6 +10,7 @@ import {
   parseProviderCliArgs,
   parsePullCliArgs,
   parseRunCliArgs,
+  parseSetupCliArgs,
 } from "../cli-options.js";
 
 test("run CLI parses typed inputs and defaults the site to the URL host", () => {
@@ -59,6 +60,20 @@ test("interactive CLI accepts a model flag", () => {
   );
   assert.deepEqual(parseInteractiveCliArgs(["--help"]), { help: true });
   assert.throws(() => parseInteractiveCliArgs(["--model", ""]), /model id is required/);
+});
+
+test("setup CLI selects which browser binaries to install", () => {
+  assert.deepEqual(parseSetupCliArgs([]), { help: false, browser: "all" });
+  assert.deepEqual(parseSetupCliArgs(["--browser", "camoufox"]), {
+    help: false,
+    browser: "camoufox",
+  });
+  assert.deepEqual(parseSetupCliArgs(["--browser", "chromium"]), {
+    help: false,
+    browser: "chromium",
+  });
+  assert.deepEqual(parseSetupCliArgs(["--help"]), { help: true });
+  assert.throws(() => parseSetupCliArgs(["--browser", "firefox"]), /camoufox.*chromium.*all/);
 });
 
 test("config CLI sets browser and model defaults", () => {
