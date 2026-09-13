@@ -117,7 +117,7 @@ export class DshReusableActionDiscoveryAgent implements ReusableActionDiscoveryA
         }),
         DSH_POC_SESSION_DIR: runDirectory,
         DSH_TELEMETRY_DISABLED: "1",
-        DSH_TOOLS_MODE: "code",
+        DSH_TOOLS_MODE: "ptc",
       },
       () => hasActionTerminal(runDirectory, request, related.length + 1),
     );

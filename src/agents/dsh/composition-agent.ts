@@ -237,7 +237,7 @@ export class DshCapabilityCompositionAgent implements CapabilityCompositionAgent
           }),
           DSH_POC_SESSION_DIR: runDirectory,
           DSH_TELEMETRY_DISABLED: "1",
-          DSH_TOOLS_MODE: "code",
+          DSH_TOOLS_MODE: "ptc",
         },
         () => hasCompositionTerminal(runDirectory, request),
         {

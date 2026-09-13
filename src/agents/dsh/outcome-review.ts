@@ -83,7 +83,7 @@ export async function reviewTaskOutcome(
       MOSAIK_EVIDENCE_PATH: evidencePath,
       DSH_POC_SESSION_DIR: directory,
       DSH_TELEMETRY_DISABLED: "1",
-      DSH_TOOLS_MODE: "code",
+      DSH_TOOLS_MODE: "ptc",
     },
     async () => {
       const events = await loadDshEvents(directory);
