@@ -1,6 +1,6 @@
 - id: tools
   config:
-    mode: code
+    mode: ptc
     maxParallelSubCalls: 1
 
 - id: llm-pi-ai
@@ -8,6 +8,7 @@
     providers:
       openrouter:
         apiKeyEnv: OPENROUTER_API_KEY
+        api: openai-completions
         reasoning: low
         models:
           - id: openai/gpt-5.6-luna:nitro
@@ -88,6 +89,8 @@
 - id: web
   disabled: true
 - id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
   disabled: true
 - id: tool-bash
   disabled: true

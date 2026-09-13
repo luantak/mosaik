@@ -1,7 +1,7 @@
-export const DISCOVERY_PROFILE = `# DSH-specific Code Mode configuration stays inside this adapter patch.
+export const DISCOVERY_PROFILE = `# DSH-specific PTC configuration stays inside this adapter patch.
 - id: tools
   config:
-    mode: code
+    mode: ptc
     maxParallelSubCalls: 1
 
 - id: llm-pi-ai
@@ -9,6 +9,7 @@ export const DISCOVERY_PROFILE = `# DSH-specific Code Mode configuration stays i
     providers:
       openrouter:
         apiKeyEnv: OPENROUTER_API_KEY
+        api: openai-completions
         reasoning: high
         models:
           - id: openai/gpt-5.6-luna:nitro
@@ -86,6 +87,8 @@ export const DISCOVERY_PROFILE = `# DSH-specific Code Mode configuration stays i
 - id: web
   disabled: true
 - id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
   disabled: true
 - id: tool-bash
   disabled: true

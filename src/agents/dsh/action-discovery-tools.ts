@@ -11,7 +11,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { WorkerThreadCodeRuntime } from "@deepseek-ai/dsh-code-runtime-worker-thread";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import { ToolCallId } from "@deepseek-ai/dsh-llm";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime, { defineTool, RUN_CODE_NAME } from "@deepseek-ai/dsh-tools";
 import type { Browser, ElementHandle } from "playwright";
@@ -2190,14 +2190,14 @@ export async function runActionDiscoveryCode(
   let nestedToolCalls = 0;
   try {
     await harness.plugin(SystemPrompt);
-    await harness.plugin(ToolRuntime, { mode: "code", maxParallelSubCalls: 1 });
+    await harness.plugin(ToolRuntime, { mode: "ptc", maxParallelSubCalls: 1 });
     await harness.plugin(WorkerThreadCodeRuntime, {});
     await registerActionDiscoveryTools(harness, input);
     harness.on("tools/result", (execution) => {
       if (execution.name !== RUN_CODE_NAME) nestedToolCalls += 1;
     });
     const result = await harness.tools.execute({
-      callId: CallId("action-discovery-code-1"),
+      callId: ToolCallId("action-discovery-code-1"),
       name: RUN_CODE_NAME,
       arguments: {
         code,

@@ -25,4 +25,4 @@ onlyBuiltDependencies:
   - "protobufjs"
 
 minimumReleaseAgeExclude:
-  - "@onkernel/sdk@0.97.0"
+  - "@onkernel/sdk@0.101.0"
