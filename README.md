@@ -32,13 +32,8 @@ We're building it for tasks like these:
 
 ## Try it
 
-Mosaik currently supports GPT-5.6 Luna through OpenRouter or your Codex
-subscription.
-
-Pick the provider with `mosaik run --model …` or `/model` in the interactive CLI.
-
-You'll need Node 22.18 or newer, pnpm, and either an OpenRouter API key or a
-Codex sign-in.
+Mosaik supports OpenRouter, OpenCode Go, and Codex sign-in. You'll need
+Node 22.18 or newer, pnpm, and credentials for the provider you choose.
 
 Clone this repo and install the CLI:
 
@@ -47,7 +42,7 @@ git clone https://github.com/luantak/mosaik.git
 cd mosaik
 pnpm install
 pnpm run build
-pnpm add --global .
+pnpm link --global "$PWD"
 mosaik setup
 mosaik doctor
 ```
@@ -63,12 +58,38 @@ mkdir my-automations
 cd my-automations
 mosaik init
 export OPENROUTER_API_KEY=your-key
-# or: mosaik provider login
+# Or use OpenCode Go: export OPENCODE_API_KEY=your-key
+# Or sign in to Codex: mosaik provider login
 mosaik
 ```
 
-You can also put the OpenRouter key in this directory's `.env` file. Codex
-stores its grant in `~/.dsh` after `mosaik provider login`.
+OpenRouter uses `OPENROUTER_API_KEY`; OpenCode Go uses `OPENCODE_API_KEY`.
+You can put either key in the automation project's `.env` file instead of
+exporting it. Codex stores its login in `~/.dsh` after `mosaik provider login`.
+
+The model picker includes:
+
+| Provider    | Model                        | Model ID                             |
+| ----------- | ---------------------------- | ------------------------------------ |
+| OpenRouter  | GPT-5.6 Luna Nitro (default) | `openai/gpt-5.6-luna:nitro`          |
+| OpenRouter  | DeepSeek V4.1 Flash Nitro    | `deepseek/deepseek-v4.1-flash:nitro` |
+| OpenCode Go | GPT-5.6 Luna                 | `opencode-go/gpt-5.6-luna`           |
+| OpenCode Go | DeepSeek V4.1 Flash          | `opencode-go/deepseek-v4.1-flash`    |
+| Codex       | GPT-5.6 Luna                 | `openai-codex/gpt-5.6-luna`          |
+| Codex       | GPT-5.6 Terra                | `openai-codex/gpt-5.6-terra`         |
+
+Type `/model` at the initial URL prompt or during a session, then use ↑/↓ and
+Enter to select. Choose a model for the provider you configured; the selection
+is saved for this project. You can also start with an explicit model:
+
+```sh
+mosaik --model opencode-go/deepseek-v4.1-flash
+# Or, after Codex sign-in:
+mosaik --model terra
+```
+
+`luna` and `terra` are aliases for the Codex models. `mosaik run --model <id>`
+also selects a model for a task.
 
 The interactive CLI will ask for a URL. Enter:
 

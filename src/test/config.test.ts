@@ -262,3 +262,18 @@ test("proxy settings survive config saves, including Kernel login updates", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("OpenCode Go selections persist their provider and model", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mosaik-go-config-"));
+  const dataDirectory = join(directory, ".mosaik");
+  try {
+    for (const model of ["deepseek-v4.1-flash", "gpt-5.6-luna"]) {
+      await saveDefaultModel(dataDirectory, `opencode-go/${model}`);
+      const config = await loadMosaikConfig(dataDirectory);
+      assert.equal(config.provider, "opencode-go");
+      assert.equal(config.model, model);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

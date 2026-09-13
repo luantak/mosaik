@@ -160,9 +160,14 @@ export function requireOpenAICodexGrantMessage(home = dshHome()): string {
 
 export async function assertLlmCredentials(model?: string, home = dshHome()): Promise<LlmRoute> {
   const route = resolveLlmRoute(model);
+  if (route.provider === "opencode-go") {
+    if (!process.env.OPENCODE_API_KEY)
+      throw new Error("OPENCODE_API_KEY is required for OpenCode Go");
+    return route;
+  }
   if (route.provider === "openrouter") {
     if (!process.env.OPENROUTER_API_KEY) {
-      throw new Error("OPENROUTER_API_KEY is required unless you sign in with OpenAI Codex");
+      throw new Error("OPENROUTER_API_KEY is required for OpenRouter");
     }
     return route;
   }

@@ -828,6 +828,7 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
   }
   const version = await packageVersion();
   const keyAlreadySet = Boolean(process.env.OPENROUTER_API_KEY);
+  const opencodeKeyAlreadySet = Boolean(process.env.OPENCODE_API_KEY);
   await loadProjectEnv(workingDirectory);
   const codex = await openaiCodexStatus();
   const checks: DoctorCheck[] = [];
@@ -905,7 +906,8 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
   });
 
   const keyReady = Boolean(process.env.OPENROUTER_API_KEY);
-  const credentialsReady = keyReady || codex.signedIn;
+  const opencodeKeyReady = Boolean(process.env.OPENCODE_API_KEY);
+  const credentialsReady = keyReady || opencodeKeyReady || codex.signedIn;
   checks.push({
     id: "credentials",
     label: "LLM credentials",
@@ -917,15 +919,20 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
               ? "OPENROUTER_API_KEY in environment"
               : "OPENROUTER_API_KEY from .env"
             : undefined,
+          opencodeKeyReady
+            ? opencodeKeyAlreadySet
+              ? "OPENCODE_API_KEY in environment"
+              : "OPENCODE_API_KEY from .env"
+            : undefined,
           codex.signedIn ? "OpenAI Codex signed in" : undefined,
         ]
           .filter((entry): entry is string => entry !== undefined)
           .join("; ")
-      : `no OPENROUTER_API_KEY and no OpenAI Codex login`,
+      : `no OPENROUTER_API_KEY, OPENCODE_API_KEY, or OpenAI Codex login`,
     ...(credentialsReady
       ? {}
       : {
-          fix: `Add OPENROUTER_API_KEY to ${resolve(workingDirectory, ".env")}, or run \`mosaik provider login\`.`,
+          fix: `Add OPENROUTER_API_KEY or OPENCODE_API_KEY to ${resolve(workingDirectory, ".env")}, or run \`mosaik provider login\`.`,
         }),
   });
 
