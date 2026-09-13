@@ -42,7 +42,7 @@ import {
 } from "./session.js";
 import { dshResourcePath, resolveDshCommand } from "./paths.js";
 import { DISCOVERY_PROFILE } from "./discovery-profile.js";
-import { DEFAULT_LLM_MODEL, patchDshProfile } from "./llm-route.js";
+import { DEFAULT_LLM_MODEL, defaultLlmReasoning, patchDshProfile } from "./llm-route.js";
 import { assertLlmCredentials } from "../../provider/openai-codex.js";
 
 import {
@@ -137,7 +137,8 @@ export class DshCapabilityCompositionAgent implements CapabilityCompositionAgent
           join(root, `outcome-${attempt}`),
           options,
           this.options.model ?? DEFAULT_LLM_MODEL,
-          this.options.reasoning ?? "high",
+          this.options.reasoning ??
+            defaultLlmReasoning(this.options.model ?? DEFAULT_LLM_MODEL, "composition"),
         ),
     ).then(async (result) => {
       if (
@@ -195,8 +196,11 @@ export class DshCapabilityCompositionAgent implements CapabilityCompositionAgent
     } else {
       await assertLlmCredentials(this.options.model ?? DEFAULT_LLM_MODEL);
       const model = this.options.model ?? DEFAULT_LLM_MODEL;
-      const reasoning = this.options.reasoning ?? "high";
-      const discoveryReasoning = this.options.discoveryReasoning ?? "high";
+      const reasoning =
+        this.options.reasoning ??
+        defaultLlmReasoning(this.options.model ?? DEFAULT_LLM_MODEL, "composition");
+      const discoveryReasoning =
+        this.options.discoveryReasoning ?? defaultLlmReasoning(model, "discovery");
       const plugin = dshResourcePath("composition-tools.js");
       const profile = patchDshProfile(DISCOVERY_PROFILE, {
         model,

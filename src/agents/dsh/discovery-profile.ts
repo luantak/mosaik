@@ -35,7 +35,26 @@ export const DISCOVERY_PROFILE = `# DSH-specific Code Mode configuration stays i
               thinkingFormat: openrouter
               supportsDeveloperRole: false
               requiresReasoningContentOnAssistantMessages: true
+          - id: deepseek/deepseek-v4.1-flash:nitro
+            name: DeepSeek V4.1 Flash Nitro
+            input: [text, image]
+            contextWindow: 1048576
+            maxTokens: 16384
+            reasoningEfforts:
+              low: low
+              medium: high
+              high: high
+            compat:
+              thinkingFormat: openrouter
+              supportsDeveloperRole: false
+              requiresReasoningContentOnAssistantMessages: true
+      # __OPENCODE_GO_PROVIDER__
       openai-codex:
+        modelOverrides:
+          gpt-5.6-terra:
+            reasoningEfforts:
+              low: low
+              medium: medium
         reasoning: high
 
 - id: agent-default-model

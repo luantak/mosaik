@@ -49,9 +49,13 @@ test("interactive CLI accepts a model flag", () => {
     help: false,
     options: { model: "gpt-5.6-luna" },
   });
+  assert.deepEqual(parseInteractiveCliArgs(["--model", "openai-codex/gpt-5.6-terra"]), {
+    help: false,
+    options: { model: "openai-codex/gpt-5.6-terra" },
+  });
   assert.throws(
     () => parseInteractiveCliArgs(["--model", "openai-codex/gpt-5.3-codex-spark"]),
-    /only gpt-5\.6-luna/,
+    /Codex currently allows gpt-5\.6-luna or gpt-5\.6-terra/,
   );
   assert.deepEqual(parseInteractiveCliArgs(["--help"]), { help: true });
   assert.throws(() => parseInteractiveCliArgs(["--model", ""]), /model id is required/);

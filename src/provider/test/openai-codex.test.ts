@@ -163,3 +163,26 @@ test("status is unsigned when the DSH store has no Codex grant", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("OpenCode Go requires its own key and accepts it without a Codex login", async () => {
+  const previous = process.env.OPENCODE_API_KEY;
+  const home = await mkdtemp(join(tmpdir(), "mosaik-go-credentials-"));
+  try {
+    delete process.env.OPENCODE_API_KEY;
+    await assert.rejects(
+      () => assertLlmCredentials("opencode-go/deepseek-v4.1-flash", home),
+      /OPENCODE_API_KEY is required/,
+    );
+    process.env.OPENCODE_API_KEY = "test-key";
+    for (const model of ["deepseek-v4.1-flash", "gpt-5.6-luna"]) {
+      assert.deepEqual(await assertLlmCredentials(`opencode-go/${model}`, home), {
+        provider: "opencode-go",
+        model,
+      });
+    }
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_API_KEY;
+    else process.env.OPENCODE_API_KEY = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});

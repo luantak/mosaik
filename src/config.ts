@@ -169,7 +169,7 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
     throw new Error("humanize must be a boolean");
   }
   if (record.provider !== undefined && typeof record.provider !== "string") {
-    throw new Error("provider must be openrouter or openai-codex");
+    throw new Error("provider must be openrouter, openai-codex, or opencode-go");
   }
   const provider = record.provider === undefined ? undefined : parseLlmProvider(record.provider);
   if (record.model !== undefined) {
