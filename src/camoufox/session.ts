@@ -1,6 +1,12 @@
+import {
+  agentBrowserProxy,
+  rememberBrowserProxy,
+  validateBrowserProxy,
+  type BrowserProxy,
+} from "../runtime/proxy.js";
 import { chmod, mkdir } from "node:fs/promises";
-import { Camoufox } from "camoufox-js";
-import type { Browser, BrowserContext, Page } from "playwright";
+import { Camoufox, NewBrowser, launchOptions } from "camoufox-js";
+import { firefox, type Browser, type BrowserContext, type Page } from "playwright";
 import { BrowserResponseCache } from "../runtime/assets.js";
 import { PAGE_SIGNAL_INIT } from "../runtime/degraded.js";
 import { configurePageHumanization } from "../runtime/humanize.js";
@@ -10,7 +16,11 @@ import {
   type BrowserSession,
   type InteractiveBrowserSession,
 } from "../runtime/session.js";
-import { toCamoufoxLaunchOptions, type CamoufoxOptions } from "./options.js";
+import {
+  toCamoufoxLaunchOptions,
+  type CamoufoxOptions,
+  type CamoufoxLaunchOptions,
+} from "./options.js";
 
 export interface CamoufoxBrowserSession extends BrowserSession {
   readonly provider: "camoufox";
@@ -28,30 +38,39 @@ export interface CamoufoxBrowserSessionOptions {
   headless?: boolean;
   humanize?: boolean;
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
 }
 
 export async function openCamoufoxBrowserSession(
   options: CamoufoxBrowserSessionOptions = {},
 ): Promise<CamoufoxBrowserSession | CamoufoxInteractiveBrowserSession> {
+  if (options.proxy !== undefined) validateBrowserProxy(options.proxy);
   if (options.profileDirectory !== undefined) {
     return openCamoufoxInteractiveBrowserSession({
       startUrl: options.startUrl ?? "about:blank",
       profileDirectory: options.profileDirectory,
       headless: options.headless ?? true,
+      ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
       ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
       ...(options.camoufox === undefined ? {} : { camoufox: options.camoufox }),
     });
   }
   const camoufox = options.camoufox ?? {};
-  const launch = toCamoufoxLaunchOptions(camoufox, { headless: options.headless ?? true });
-  const browser = (await Camoufox(launch)) as Browser;
-  const session = ephemeralSession(
-    browser,
-    options.humanize === undefined ? {} : { humanize: options.humanize },
-  );
+  const proxyOptions =
+    options.proxy === undefined ? {} : { proxy: validateBrowserProxy(options.proxy) };
+  const launch = toCamoufoxLaunchOptions(camoufox, {
+    headless: options.headless ?? true,
+    ...proxyOptions,
+  });
+  const browser = (await launchCamoufox(launch)) as Browser;
+  const session = ephemeralSession(browser, {
+    ...proxyOptions,
+    ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
+  });
   return {
     ...session,
     provider: "camoufox",
+    ...proxyOptions,
     camoufox,
   };
 }
@@ -62,14 +81,18 @@ export async function openCamoufoxInteractiveBrowserSession(options: {
   headless?: boolean;
   humanize?: boolean;
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
 }): Promise<CamoufoxInteractiveBrowserSession> {
   await prepareProfileDirectory(options.profileDirectory);
   const camoufox = options.camoufox ?? {};
+  const proxyOptions =
+    options.proxy === undefined ? {} : { proxy: validateBrowserProxy(options.proxy) };
   const launch = toCamoufoxLaunchOptions(camoufox, {
+    ...proxyOptions,
     headless: options.headless ?? false,
     userDataDir: options.profileDirectory,
   });
-  const context = (await Camoufox(launch)) as BrowserContext;
+  const context = (await launchCamoufox(launch)) as BrowserContext;
   await context.addInitScript(PAGE_SIGNAL_INIT);
   const initialPage =
     context.pages().find((candidate) => candidate.url() === "about:blank") ??
@@ -109,6 +132,7 @@ export async function openCamoufoxInteractiveBrowserSession(options: {
   return {
     kind: "persistent",
     provider: "camoufox",
+    ...proxyOptions,
     camoufox,
     profileDirectory: options.profileDirectory,
     async withPage<T>(run: (active: Page) => Promise<T>): Promise<T> {
@@ -129,8 +153,14 @@ export async function openCamoufoxAgentBrowser(): Promise<Browser> {
   const source = process.env[MOSAIK_CAMOUFOX_OPTIONS_ENV];
   const camoufox =
     source === undefined || source.length === 0 ? {} : (JSON.parse(source) as CamoufoxOptions);
-  const launch = toCamoufoxLaunchOptions(camoufox, { headless: true });
-  return (await Camoufox(launch)) as Browser;
+  const proxy = agentBrowserProxy();
+  const launch = toCamoufoxLaunchOptions(camoufox, {
+    headless: true,
+    ...(proxy === undefined ? {} : { proxy }),
+  });
+  const browser = (await launchCamoufox(launch)) as Browser;
+  rememberBrowserProxy(browser, proxy);
+  return browser;
 }
 
 const safelyHandledDialogPages = new WeakSet<Page>();
@@ -147,4 +177,21 @@ function installSafeDialogHandler(page: Page): void {
 async function prepareProfileDirectory(profileDirectory: string): Promise<void> {
   await mkdir(profileDirectory, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") await chmod(profileDirectory, 0o700);
+}
+
+async function launchCamoufox(options: CamoufoxLaunchOptions): Promise<Browser | BrowserContext> {
+  if (options.proxy === undefined) return Camoufox(options);
+  const { user_data_dir, ...input } = options;
+  const resolved = await launchOptions(input);
+  // camoufox-js 0.12 converts proxy URLs through URL.origin ("null" for SOCKS5)
+  // and leaves credentials URL-encoded. Preserve the original Playwright settings.
+  return NewBrowser(
+    firefox,
+    options.headless ?? true,
+    {
+      ...resolved,
+      proxy: options.proxy,
+    },
+    user_data_dir ?? false,
+  );
 }

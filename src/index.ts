@@ -1,3 +1,4 @@
+export type { BrowserProxy } from "./runtime/proxy.js";
 export {
   composeAndRun,
   DEFAULT_COMPOSITION_BUDGETS,

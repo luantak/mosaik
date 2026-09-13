@@ -1,3 +1,10 @@
+import {
+  agentBrowserProxy,
+  rememberBrowserProxy,
+  validateBrowserProxy,
+  MOSAIK_BROWSER_PROXY_ENV,
+  type BrowserProxy,
+} from "./proxy.js";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { chmod, mkdir, readFile } from "node:fs/promises";
@@ -11,6 +18,7 @@ export interface BrowserSession {
   kind: "ephemeral" | "persistent";
   provider?: "local" | "kernel" | "camoufox";
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
   profileDirectory?: string;
   cdpEndpoint?: string;
   cdpTargetId?: string;
@@ -40,6 +48,7 @@ export interface BrowserSessionOptions {
   humanize?: boolean;
   browser?: "local" | "camoufox";
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
 }
 
 export const MOSAIK_CDP_WS_URL_ENV = "MOSAIK_CDP_WS_URL";
@@ -101,6 +110,9 @@ export async function withDialogResponse<T>(
 export async function openBrowserSession(
   options: BrowserSessionOptions = {},
 ): Promise<BrowserSession> {
+  if (options.proxy !== undefined) {
+    options = { ...options, proxy: validateBrowserProxy(options.proxy) };
+  }
   if (options.browser === "camoufox") {
     const { openCamoufoxBrowserSession } = await import("../camoufox/session.js");
     return openCamoufoxBrowserSession(options);
@@ -110,12 +122,14 @@ export async function openBrowserSession(
       startUrl: "about:blank",
       profileDirectory: options.profileDirectory,
       headless: options.headless ?? true,
+      ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
       ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
     });
   }
-  const launched = await launchCdpBrowser(options.headless ?? true);
+  const launched = await launchCdpBrowser(options.headless ?? true, options.proxy);
   return ephemeralSession(launched.browser, {
     cdpEndpoint: launched.cdpEndpoint,
+    ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
     close: () => launched.browser.close(),
     ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
   });
@@ -128,7 +142,11 @@ export async function openInteractiveBrowserSession(options: {
   humanize?: boolean;
   browser?: "local" | "camoufox";
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
 }): Promise<InteractiveBrowserSession> {
+  if (options.proxy !== undefined) {
+    options = { ...options, proxy: validateBrowserProxy(options.proxy) };
+  }
   if (options.browser === "camoufox") {
     const { openCamoufoxInteractiveBrowserSession } = await import("../camoufox/session.js");
     return openCamoufoxInteractiveBrowserSession(options);
@@ -136,6 +154,7 @@ export async function openInteractiveBrowserSession(options: {
   await prepareProfileDirectory(options.profileDirectory);
   const context = await chromium.launchPersistentContext(options.profileDirectory, {
     headless: options.headless ?? false,
+    ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
     args: ["--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1"],
   });
   await context.addInitScript(PAGE_SIGNAL_INIT);
@@ -178,6 +197,7 @@ export async function openInteractiveBrowserSession(options: {
   return {
     kind: "persistent",
     profileDirectory: options.profileDirectory,
+    ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
     cdpEndpoint,
     async withPage<T>(run: (active: Page) => Promise<T>): Promise<T> {
       return run(await activePage());
@@ -203,9 +223,12 @@ export async function openAgentBrowser(): Promise<Browser> {
     return openCamoufoxAgentBrowser();
   }
   const endpoint = process.env[MOSAIK_CDP_WS_URL_ENV];
-  return endpoint === undefined || endpoint.length === 0
-    ? chromium.launch({ headless: true })
-    : chromium.connectOverCDP(endpoint);
+  const proxy = agentBrowserProxy();
+  const browser = await (endpoint === undefined || endpoint.length === 0
+    ? chromium.launch({ headless: true, ...(proxy === undefined ? {} : { proxy }) })
+    : chromium.connectOverCDP(endpoint));
+  rememberBrowserProxy(browser, proxy);
+  return browser;
 }
 
 export async function connectBrowserSessionOverCdp(cdpEndpoint: string): Promise<BrowserSession> {
@@ -215,14 +238,20 @@ export async function connectBrowserSessionOverCdp(cdpEndpoint: string): Promise
 }
 
 export function browserSessionEnvironment(session: Browser | BrowserSession): NodeJS.ProcessEnv {
+  const proxyEnv =
+    isBrowserSession(session) && session.proxy !== undefined
+      ? { [MOSAIK_BROWSER_PROXY_ENV]: JSON.stringify(session.proxy) }
+      : {};
   if (isBrowserSession(session) && session.provider === "camoufox") {
     return {
+      ...proxyEnv,
       [MOSAIK_BROWSER_ENV]: "camoufox",
       [MOSAIK_CAMOUFOX_OPTIONS_ENV]: JSON.stringify(session.camoufox ?? {}),
     };
   }
   return isBrowserSession(session) && session.cdpEndpoint !== undefined
     ? {
+        ...proxyEnv,
         [MOSAIK_CDP_WS_URL_ENV]: session.cdpEndpoint,
         ...(session.cdpTargetId ? { MOSAIK_CDP_TARGET_ID: session.cdpTargetId } : {}),
       }
@@ -236,6 +265,7 @@ export function ephemeralSession(
     close?: () => Promise<void>;
     defaultStepTimeoutMs?: number;
     humanize?: boolean;
+    proxy?: BrowserProxy;
   } = {},
 ): BrowserSession {
   const defaultStepTimeoutMs =
@@ -243,10 +273,13 @@ export function ephemeralSession(
     (options.cdpEndpoint === undefined ? undefined : DEFAULT_REMOTE_STEP_TIMEOUT_MS);
   return {
     kind: "ephemeral",
+    ...(options.proxy === undefined ? {} : { proxy: options.proxy }),
     ...(options.cdpEndpoint === undefined ? {} : { cdpEndpoint: options.cdpEndpoint }),
     ...(defaultStepTimeoutMs === undefined ? {} : { defaultStepTimeoutMs }),
     async withPage<T>(run: (page: Page) => Promise<T>): Promise<T> {
-      const context = await browser.newContext();
+      const context = await browser.newContext(
+        options.proxy === undefined ? {} : { proxy: options.proxy },
+      );
       await context.addInitScript(PAGE_SIGNAL_INIT);
       try {
         const page = await context.newPage();
@@ -307,6 +340,7 @@ async function prepareProfileDirectory(profileDirectory: string): Promise<void> 
 
 async function launchCdpBrowser(
   headless: boolean,
+  proxy?: BrowserProxy,
 ): Promise<{ browser: Browser; cdpEndpoint: string }> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -315,6 +349,7 @@ async function launchCdpBrowser(
       const browser = await chromium.launch({
         executablePath: chromium.executablePath(),
         headless,
+        ...(proxy === undefined ? {} : { proxy }),
         args: [`--remote-debugging-port=${port}`, "--remote-debugging-address=127.0.0.1"],
       });
       return { browser, cdpEndpoint: `http://127.0.0.1:${port}` };

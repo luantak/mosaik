@@ -228,3 +228,37 @@ test("malformed project config names its file", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("proxy settings survive config saves, including Kernel login updates", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mosaik-config-"));
+  const proxy = {
+    server: "http://proxy.test:8080",
+    username: "user",
+    password: "secret",
+    bypass: ".internal.test",
+  };
+  try {
+    await writeFile(
+      join(directory, "config.json"),
+      JSON.stringify({ version: 1, proxy, kernel: { proxyId: "proxy-id" } }),
+    );
+    await saveDefaultBrowser(directory, "camoufox");
+    await saveKernelAuthConnection(directory, {
+      domain: "example.test",
+      loginUrl: "https://example.test/login",
+      connectionId: "connection-id",
+      profileName: "profile",
+    });
+    const config = await loadMosaikConfig(directory);
+    assert.deepEqual(config.proxy, proxy);
+    assert.equal(config.kernel?.proxyId, "proxy-id");
+    assert.equal(config.kernel?.connections["example.test"]?.connectionId, "connection-id");
+    await writeFile(
+      join(directory, "config.json"),
+      JSON.stringify({ version: 1, proxy: { server: "http://user:secret@proxy.test" } }),
+    );
+    await assert.rejects(() => loadMosaikConfig(directory), /without credentials/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

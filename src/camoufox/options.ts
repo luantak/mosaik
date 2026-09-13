@@ -1,3 +1,4 @@
+import type { BrowserProxy } from "../runtime/proxy.js";
 export const CAMOUFOX_OS_VALUES = ["windows", "macos", "linux"] as const;
 
 export type CamoufoxOs = (typeof CAMOUFOX_OS_VALUES)[number];
@@ -59,6 +60,7 @@ export interface CamoufoxLaunchOptions {
   screen?: CamoufoxScreenConstraints;
   headless?: boolean;
   user_data_dir?: string;
+  proxy?: BrowserProxy;
 }
 
 export const CAMOUFOX_LAUNCH_OPTION_MAPPING = {
@@ -113,10 +115,11 @@ export function resolveCamoufoxOptions(options: CamoufoxOptions = {}): ResolvedC
 
 export function toCamoufoxLaunchOptions(
   options: CamoufoxOptions = {},
-  launch: { headless?: boolean; userDataDir?: string } = {},
+  launch: { headless?: boolean; userDataDir?: string; proxy?: BrowserProxy } = {},
 ): CamoufoxLaunchOptions {
   const resolved = resolveCamoufoxOptions(options);
   return {
+    ...(launch.proxy === undefined ? {} : { proxy: launch.proxy }),
     os: resolved.os,
     humanize: resolved.humanize,
     geoip: resolved.geoip,

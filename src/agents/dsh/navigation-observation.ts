@@ -1,3 +1,4 @@
+import { browserProxyOptions } from "../../runtime/proxy.js";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { collectOverview, toPageSnapshot } from "../../runtime/overview.js";
 import { openAgentBrowser, sharedAgentPage } from "../../runtime/session.js";
@@ -32,7 +33,7 @@ export function createNavigationObserver(input: {
         browser = input.browser ?? (await openAgentBrowser());
         page = await sharedAgentPage(browser);
         if (!page) {
-          context = await browser.newContext();
+          context = await browser.newContext(browserProxyOptions(browser));
           page = await context.newPage();
         }
       }

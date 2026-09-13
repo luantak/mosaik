@@ -255,6 +255,7 @@ async function openInteractiveCliSession(
     profileDirectory,
     browser: browserProvider,
     humanize: resolveHumanization(undefined, config),
+    ...(config.proxy === undefined ? {} : { proxy: config.proxy }),
     ...(config.camoufox === undefined ? {} : { camoufox: config.camoufox }),
   });
   const runId = randomUUID();
@@ -569,6 +570,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
             headless: options.headless,
             humanize,
             stealth: options.kernelStealth,
+            ...(config.kernel?.proxyId === undefined ? {} : { proxyId: config.kernel.proxyId }),
             timeoutSeconds: options.kernelTimeoutSeconds,
             ...(resolvedProfile === undefined ? {} : { profileName: resolvedProfile }),
           })
@@ -578,6 +580,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
               humanize,
               browser: browserProvider,
               ...camoufoxSessionOptions(camoufoxOptions),
+              ...(config.proxy === undefined ? {} : { proxy: config.proxy }),
             })
           : openInteractiveBrowserSession({
               startUrl: options.startUrl,
@@ -589,6 +592,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
               humanize,
               browser: browserProvider,
               ...camoufoxSessionOptions(camoufoxOptions),
+              ...(config.proxy === undefined ? {} : { proxy: config.proxy }),
             }),
   );
   try {

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 export interface KernelHostedLoginRequest {
   domain: string;
   profileName?: string;
+  proxyId?: string;
   loginUrl?: string;
   allowedDomains?: string[];
 }
@@ -49,7 +50,7 @@ interface KernelAuthConnectionCreateRequest {
   health_checks?: boolean;
   auto_reauth?: boolean;
   save_credentials?: boolean;
-  browser?: { stealth?: boolean };
+  browser?: { stealth?: boolean; proxy?: { id: string } };
 }
 
 interface AuthConnection {
@@ -84,6 +85,12 @@ export async function startKernelHostedLogin(
   ) {
     throw new Error("allowedDomains must be an array of strings");
   }
+  if (
+    request.proxyId !== undefined &&
+    (typeof request.proxyId !== "string" || !request.proxyId.trim())
+  ) {
+    throw new Error("proxyId must be a non-empty string");
+  }
   const domain = normalizeDomain(request.domain, "domain");
   const loginUrl = request.loginUrl === undefined ? undefined : normalizeWebUrl(request.loginUrl);
   const allowedDomains =
@@ -105,7 +112,10 @@ export async function startKernelHostedLogin(
         health_checks: true,
         auto_reauth: true,
         save_credentials: true,
-        browser: { stealth: true },
+        browser: {
+          stealth: true,
+          ...(request.proxyId === undefined ? {} : { proxy: { id: request.proxyId } }),
+        },
       });
     } catch (error) {
       if (!isConflict(error)) throw error;

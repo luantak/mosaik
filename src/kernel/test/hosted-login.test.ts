@@ -149,3 +149,9 @@ test("requires an authenticated profile on the configured domain", async () => {
     /http or https/,
   );
 });
+
+test("new hosted login connections select the requested proxy", async () => {
+  const client = fakeClient();
+  await startKernelHostedLogin(client, { domain: "example.com", proxyId: "proxy-id" });
+  assert.deepEqual(client.created?.browser, { stealth: true, proxy: { id: "proxy-id" } });
+});

@@ -10,6 +10,7 @@ export interface KernelBrowserSessionOptions {
   stealth?: boolean;
   timeoutSeconds?: number;
   profileName?: string;
+  proxyId?: string;
   saveProfileChanges?: boolean;
 }
 
@@ -25,6 +26,7 @@ export async function openKernelBrowserSession(
 ): Promise<KernelBrowserSession> {
   const client = options.client ?? new Kernel();
   const created = await client.browsers.create({
+    ...(options.proxyId === undefined ? {} : { proxy: { id: options.proxyId } }),
     headless: options.headless ?? false,
     stealth: options.stealth ?? false,
     timeout_seconds: options.timeoutSeconds ?? 300,

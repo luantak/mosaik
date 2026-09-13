@@ -1,3 +1,4 @@
+import type { BrowserProxy } from "../runtime/proxy.js";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
@@ -61,13 +62,14 @@ export async function runLoginCommand(
       resolved.loginUrl,
     );
   }
-  return runLocalLoginCommand(resolved, workingDirectory, config.camoufox);
+  return runLocalLoginCommand(resolved, workingDirectory, config.camoufox, config.proxy);
 }
 
 async function runLocalLoginCommand(
   options: LoginCliOptions,
   workingDirectory: string,
   camoufox?: CamoufoxOptions,
+  proxy?: BrowserProxy,
 ): Promise<number> {
   const repositoryRoot = options.dataDirectory;
   const reporter = new TaskReporter();
@@ -95,6 +97,7 @@ async function runLocalLoginCommand(
         profileDirectory: options.profileDirectory,
         headless: options.headless,
         browser,
+        ...(proxy === undefined ? {} : { proxy }),
         ...(camoufox === undefined ? {} : { camoufox }),
       }),
   );
@@ -192,6 +195,7 @@ async function runKernelLoginCommand(
   const selectedProfile = options.kernelProfile ?? mapping?.profileName;
   const started = await startKernelHostedLogin(client, {
     domain,
+    ...(config.kernel?.proxyId === undefined ? {} : { proxyId: config.kernel.proxyId }),
     ...(selectedProfile === undefined ? {} : { profileName: selectedProfile }),
     loginUrl: loginUrl.href,
     ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),

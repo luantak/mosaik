@@ -245,3 +245,7 @@ Deterministic tests use fake agents or local tools and don't need model keys.
 
 The [reference](docs/reference.md) has the rest, including architecture details,
 file downloads, authentication internals, and the automation API.
+
+Browser traffic can use HTTP(S) proxies (including authentication) or SOCKS5 proxies with Chromium
+and Camoufox, or a registered Kernel proxy. See [proxy configuration](docs/reference.md#browser-proxies)
+for CLI, login, and TypeScript examples.

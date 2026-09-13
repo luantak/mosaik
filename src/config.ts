@@ -1,3 +1,4 @@
+import { validateBrowserProxy, type BrowserProxy } from "./runtime/proxy.js";
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -29,7 +30,9 @@ export interface MosaikConfig {
   provider?: LlmProvider;
   model?: string;
   camoufox?: CamoufoxOptions;
+  proxy?: BrowserProxy;
   kernel?: {
+    proxyId?: string;
     connections: Record<string, KernelAuthConnection>;
   };
 }
@@ -123,6 +126,7 @@ export async function saveKernelAuthConnection(
   return saveMosaikConfig(dataDirectory, {
     ...config,
     kernel: {
+      ...config.kernel,
       connections: {
         ...config.kernel?.connections,
         [normalized.domain]: normalized,
@@ -177,6 +181,7 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   if (provider !== undefined && model === undefined) {
     throw new Error("model is required when provider is set");
   }
+  const proxy = record.proxy === undefined ? undefined : validateBrowserProxy(record.proxy);
   const camoufox =
     record.camoufox === undefined
       ? undefined
@@ -184,6 +189,7 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   if (record.kernel === undefined) {
     return {
       version: 1,
+      ...(proxy === undefined ? {} : { proxy }),
       ...(record.browser === undefined ? {} : { browser: record.browser }),
       ...(record.humanize === undefined ? {} : { humanize: record.humanize }),
       ...(provider === undefined ? {} : { provider }),
@@ -194,7 +200,12 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   if (record.kernel === null || typeof record.kernel !== "object" || Array.isArray(record.kernel)) {
     throw new Error("kernel must be an object");
   }
-  const rawConnections = (record.kernel as Record<string, unknown>).connections;
+  const kernelRecord = record.kernel as Record<string, unknown>;
+  const proxyId =
+    kernelRecord.proxyId === undefined
+      ? undefined
+      : requiredString(kernelRecord.proxyId, "kernel.proxyId");
+  const rawConnections = kernelRecord.connections === undefined ? {} : kernelRecord.connections;
   if (
     rawConnections === null ||
     typeof rawConnections !== "object" ||
@@ -211,12 +222,13 @@ function validateMosaikConfig(value: unknown): MosaikConfig {
   }
   return {
     version: 1,
+    ...(proxy === undefined ? {} : { proxy }),
     ...(record.browser === undefined ? {} : { browser: record.browser }),
     ...(record.humanize === undefined ? {} : { humanize: record.humanize }),
     ...(provider === undefined ? {} : { provider }),
     ...(model === undefined ? {} : { model }),
     ...(camoufox === undefined || Object.keys(camoufox).length === 0 ? {} : { camoufox }),
-    kernel: { connections },
+    kernel: { connections, ...(proxyId === undefined ? {} : { proxyId }) },
   };
 }
 

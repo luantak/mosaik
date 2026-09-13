@@ -113,6 +113,107 @@ mosaik actions list --site example.com --json
 
 Run `mosaik --help` or `mosaik <command> --help` for all options.
 
+## Browser proxies
+
+For Chromium (`local`) and Camoufox, add a top-level `proxy` object to
+`.mosaik/config.json` (or `config.json` in your `--data-dir`). Merge these fields
+into your existing config:
+
+```json
+{
+  "version": 1,
+  "browser": "local",
+  "proxy": {
+    "server": "http://proxy.example.com:8080",
+    "username": "your-proxy-user",
+    "password": "your-proxy-password",
+    "bypass": "localhost,127.0.0.1,.internal.example.com"
+  }
+}
+```
+
+Only `server` is required. Use an HTTP(S) URL, `socks5h://host:port`, `socks5://host:port`, or
+`host:port` (HTTP). Put credentials in `username` and `password`, not in the URL.
+SOCKS5 supports authentication at the protocol level, but Playwright rejects
+SOCKS5 credentials for its browser backends. Use an authenticated HTTP(S) proxy,
+or run a local relay that accepts unauthenticated browser connections and
+handles authentication to your SOCKS5 upstream.
+
+Both SOCKS5 spellings use proxy-side destination DNS in Mosaik. `socks5h://`
+is accepted as an explicit alias and normalized to the browser-supported
+`socks5://` scheme. Unlike curl's distinction between these schemes,
+[Chromium always resolves SOCKS5 destinations through the proxy](https://github.com/chromium/chromium/blob/main/net/docs/proxy.md#socksv5-proxy-scheme).
+Camoufox's Playwright connection also sends destination hostnames to the SOCKS5
+proxy. This concerns proxied browser requests; it is not a guarantee that all
+machine DNS or UDP traffic is tunneled. The proxy server's own hostname may
+still need local resolution.
+
+`bypass` is a comma-separated list of hosts or suffixes that should connect
+directly. These are [Playwright proxy settings](https://playwright.dev/docs/network#http-proxy).
+
+The CLI applies this configuration to interactive sessions, task runs, local
+login sessions, and browsers opened by the agent, including new contexts.
+Set `"browser": "camoufox"` or pass `--browser camoufox` to use the same proxy
+with Camoufox. GeoIP remains off by default; `"camoufox": { "geoip": true }`
+enables Camoufox's proxy-based IP lookup for timezone, locale, and geolocation.
+Restart the session after changing the proxy. Remove `proxy` to restore the
+browser's default networking.
+
+For imported automations, pass the proxy explicitly; `createMosaik` does not
+read the CLI config:
+
+```ts
+import { createMosaik } from "mosaik";
+
+const mosaik = await createMosaik({
+  browser: "local", // or "camoufox"
+  proxy: {
+    server: "http://proxy.example.com:8080",
+    username: process.env.PROXY_USERNAME!,
+    password: process.env.PROXY_PASSWORD!,
+  },
+});
+// Run imported automations with this instance, then await mosaik.close().
+```
+
+`openBrowserSession` and `openInteractiveBrowserSession` accept the same
+`proxy` option, including when using a persistent profile. For a caller-supplied
+session or an existing CDP browser, configure the proxy when creating that
+browser; attaching to it does not change its networking.
+
+These settings route browser requests, including browser-backed downloads.
+They do not configure inference-provider traffic, Kernel API calls, or browser
+binary downloads. Mosaik does not translate `HTTP_PROXY` / `HTTPS_PROXY` into
+browser launch settings. Keep proxy credentials out of committed files;
+config JSON uses literal values and does not expand environment variables.
+
+### Kernel proxies
+
+Kernel uses a proxy registered in your Kernel project. Create a managed or
+custom proxy through [Kernel's proxy tools](https://www.kernel.sh/docs/proxies/overview),
+then configure its ID:
+
+```json
+{
+  "version": 1,
+  "browser": "kernel",
+  "kernel": {
+    "proxyId": "your-kernel-proxy-id"
+  }
+}
+```
+
+`mosaik run --browser kernel` uses `kernel.proxyId`. The local `proxy` object
+does not apply to Kernel browsers. New Kernel login connections also receive
+this proxy; existing managed-auth connections retain their saved browser
+settings, which you can change through Kernel. The no-argument interactive CLI
+uses a local browser even when the configured browser is Kernel.
+
+For the API, use `openKernelBrowserSession({ proxyId: "your-kernel-proxy-id" })`
+from `mosaik` and pass the resulting session to `createMosaik({ session })`.
+Deployed Kernel `run` and `login` action payloads also accept `proxyId`.
+Omitting the ID leaves Kernel's default proxy behavior in effect.
+
 ## Camoufox browsers
 
 Camoufox is a first-class local browser provider. It uses
@@ -652,7 +753,7 @@ still needs its normal TypeScript execution support, such as `tsx`.
 
 `createMosaik` accepts `startUrl`, `profileDirectory`, `browser`, `camoufox`,
 `timeoutMs`, `maxActionCalls`,
-`outputDirectory`, `repair`, `humanize`, and an abort `signal`. `browser: "camoufox"`
+`outputDirectory`, `repair`, `humanize`, `proxy`, and an abort `signal`. `browser: "camoufox"`
 launches Camoufox through camoufox-js. `humanize: true` is mosaik `ghost-cursor`
 runtime humanization, not `camoufox.humanize`. It changes only
 runtime interaction delivery: mouse paths use `ghost-cursor`, scrolling and typing are paced,

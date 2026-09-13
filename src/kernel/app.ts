@@ -32,6 +32,7 @@ export interface KernelMosaikPayload {
   stealth?: boolean;
   authConnectionId?: string;
   profileName?: string;
+  proxyId?: string;
 }
 
 export type KernelLibraryPersistence = LibraryPersistenceMetrics | { mode: "ephemeral" };
@@ -94,6 +95,7 @@ export async function runKernelMosaik(
       headless: payload.headless ?? true,
       ...(payload.humanize === undefined ? {} : { humanize: payload.humanize }),
       stealth: payload.stealth ?? false,
+      ...(payload.proxyId === undefined ? {} : { proxyId: payload.proxyId }),
       timeoutSeconds: 300,
       ...(profileName === undefined ? {} : { saveProfileChanges: true }),
       ...(profileName === undefined ? {} : { profileName }),
@@ -164,6 +166,7 @@ function parsePayload(value: unknown): KernelMosaikPayload {
     "automationId",
     "model",
     "profileName",
+    "proxyId",
     "authConnectionId",
   ] as const) {
     if (payload[key] !== undefined && typeof payload[key] !== "string") {
@@ -180,6 +183,9 @@ function parsePayload(value: unknown): KernelMosaikPayload {
   }
   return {
     task,
+    ...(payload.proxyId === undefined
+      ? {}
+      : { proxyId: requiredString(payload.proxyId, "proxyId") }),
     url: parsedUrl.href,
     ...(payload.siteId === undefined ? {} : { siteId: payload.siteId as string }),
     ...(payload.inputs === undefined ? {} : { inputs: payload.inputs }),

@@ -1,3 +1,4 @@
+import { browserProxyOptions } from "../runtime/proxy.js";
 import type { Browser, Page } from "playwright";
 import {
   RunLog,
@@ -142,7 +143,7 @@ export function createDiscoveryTools(
 
   const page = async (): Promise<Page> => {
     if (context.page !== undefined) return context.page;
-    browserContext = await browser.newContext();
+    browserContext = await browser.newContext(browserProxyOptions(browser));
     await browserContext.addInitScript(PAGE_SIGNAL_INIT);
     context.page = await browserContext.newPage();
     return context.page;
