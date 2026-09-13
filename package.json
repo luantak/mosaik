@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "integrations/hermes/SKILL.md",
     "src/**/*.ts",
     "src/**/*.tsx",
     "README.md",

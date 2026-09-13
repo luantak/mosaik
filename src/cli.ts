@@ -42,6 +42,7 @@ import {
   ACTIONS_CLI_HELP,
   CONFIG_CLI_HELP,
   DOCTOR_CLI_HELP,
+  HERMES_CLI_HELP,
   INIT_CLI_HELP,
   KERNEL_CLI_HELP,
   PULL_CLI_HELP,
@@ -49,14 +50,17 @@ import {
   parseActionsCliArgs,
   parseConfigCliArgs,
   parseDoctorCliArgs,
+  parseHermesCliArgs,
   parseInitCliArgs,
   parseInteractiveCliArgs,
   parseKernelCliArgs,
   parseProviderCliArgs,
   parsePullCliArgs,
   parseRunCliArgs,
+  parseSetupCliArgs,
   PROVIDER_CLI_HELP,
   RUN_CLI_HELP,
+  SETUP_CLI_HELP,
   type RunCliOptions,
 } from "./cli-options.js";
 import {
@@ -87,6 +91,7 @@ import {
 } from "./config.js";
 import { composeAndRun } from "./composition/index.js";
 import { initializeMosaikProject } from "./init.js";
+import { hermesSkillSnapshotMatches, installHermesIntegration } from "./hermes/install.js";
 import {
   authAutomationFilePath,
   defaultLibraryNamespace,
@@ -105,6 +110,7 @@ import {
 import { openKernelBrowserSession } from "./kernel/browser-session.js";
 import { requireAuthenticatedKernelProfile } from "./kernel/hosted-login.js";
 import { deployKernelProject } from "./kernel/deploy.js";
+import { browserBinaryStatuses, installBrowserBinaries } from "./setup.js";
 
 const require = createRequire(import.meta.url);
 
@@ -117,6 +123,7 @@ const COMMANDS = [
   "pull",
   "reset",
   "setup",
+  "hermes",
   "doctor",
   "kernel",
   "config",
@@ -153,6 +160,8 @@ export async function main(args: string[], workingDirectory = process.cwd()): Pr
       return resetCommand(rest, workingDirectory);
     case "setup":
       return setupCommand(rest);
+    case "hermes":
+      return hermesCommand(rest, workingDirectory);
     case "doctor":
       return doctorCommand(rest, workingDirectory);
     case "kernel":
@@ -795,29 +804,86 @@ This cannot be undone by Mosaik. Type exactly "i know" to continue. Anything els
 }
 
 async function setupCommand(args: string[]): Promise<number> {
-  if (args.includes("--help") || args.includes("-h")) {
-    process.stdout.write(
-      "Usage:\n  mosaik setup\n\nInstalls Playwright Chromium and fetches Camoufox.\n",
-    );
+  const parsed = parseSetupCliArgs(args);
+  if (parsed.help) {
+    process.stdout.write(SETUP_CLI_HELP);
     return 0;
   }
-  if (args.length > 0) throw new Error("mosaik setup does not accept arguments");
   const reporter = new TaskReporter();
   const packageRoot = dirname(require.resolve("playwright/package.json"));
-  reporter.info("Installing Chromium with Playwright");
-  const chromiumExit = await spawnAndWait(process.execPath, [
-    resolve(packageRoot, "cli.js"),
-    "install",
-    "chromium",
-  ]);
-  if (chromiumExit === 0) reporter.success("Chromium is ready");
-  else reporter.warning("Playwright could not install Chromium");
   const camoufox = camoufoxFetchCommand();
-  reporter.info("Fetching Camoufox with camoufox-js");
-  const camoufoxExit = await spawnAndWait(camoufox.executable, camoufox.args);
-  if (camoufoxExit === 0) reporter.success("Camoufox is ready");
-  else reporter.warning("camoufox-js could not fetch Camoufox");
-  return chromiumExit === 0 && camoufoxExit === 0 ? 0 : 1;
+  const result = await installBrowserBinaries(parsed.browser, {
+    installChromium: async () => {
+      reporter.info("Installing Chromium with Playwright");
+      const exitCode = await spawnAndWait(process.execPath, [
+        resolve(packageRoot, "cli.js"),
+        "install",
+        "chromium",
+      ]);
+      if (exitCode === 0) reporter.success("Chromium is ready");
+      else reporter.warning("Playwright could not install Chromium");
+      return exitCode;
+    },
+    installCamoufox: async () => {
+      reporter.info("Fetching Camoufox with camoufox-js");
+      const exitCode = await spawnAndWait(camoufox.executable, camoufox.args);
+      if (exitCode === 0) reporter.success("Camoufox is ready");
+      else reporter.warning("camoufox-js could not fetch Camoufox");
+      return exitCode;
+    },
+  });
+  return Object.values(result).every(Boolean) ? 0 : 1;
+}
+
+async function hermesCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseHermesCliArgs(args);
+  if (parsed.help) {
+    process.stdout.write(HERMES_CLI_HELP);
+    return 0;
+  }
+  const hermes = await findExecutableOnPath("hermes");
+  if (hermes === undefined) {
+    throw new Error(
+      "Hermes Agent is not on PATH. Install it from https://hermes-agent.nousresearch.com, then retry.",
+    );
+  }
+  const reporter = new TaskReporter();
+  const camoufox = camoufoxFetchCommand();
+  const version = await packageVersion();
+  const result = await installHermesIntegration(
+    {
+      dataDirectory: resolve(workingDirectory, ".mosaik"),
+      packageVersion: version,
+    },
+    {
+      installSkill: async (installArgs) => {
+        reporter.info("Installing the Mosaik skill for Hermes Agent");
+        const exitCode = await spawnAndWait(hermes, [...installArgs]);
+        if (exitCode === 0) reporter.success("Hermes skill is ready");
+        else reporter.warning("Hermes could not install the Mosaik skill");
+        return exitCode;
+      },
+      verifySkill: async (expectedIdentifier) => {
+        const snapshot = await commandJsonOutput(hermes, ["skills", "snapshot", "export", "-"]);
+        const matches = hermesSkillSnapshotMatches(snapshot, expectedIdentifier);
+        if (matches) reporter.success("Hermes recorded the package-pinned skill");
+        else reporter.warning("Hermes did not record the package-pinned Mosaik skill");
+        return matches;
+      },
+      installCamoufox: async () => {
+        reporter.info("Fetching Camoufox with camoufox-js");
+        const exitCode = await spawnAndWait(camoufox.executable, camoufox.args);
+        if (exitCode === 0) reporter.success("Camoufox is ready");
+        else reporter.warning("camoufox-js could not fetch Camoufox");
+        return exitCode;
+      },
+    },
+  );
+  if (!result.skillInstalled || !result.camoufoxInstalled) return 1;
+  reporter.success(
+    `Hermes integration installed; Camoufox is the default in ${resolve(workingDirectory, ".mosaik")}`,
+  );
+  return 0;
 }
 
 async function doctorCommand(args: string[], workingDirectory: string): Promise<number> {
@@ -827,6 +893,10 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
     return 0;
   }
   const version = await packageVersion();
+  const browserProvider = resolveMosaikBrowser(
+    undefined,
+    await loadMosaikConfig(options.dataDirectory),
+  );
   const keyAlreadySet = Boolean(process.env.OPENROUTER_API_KEY);
   const opencodeKeyAlreadySet = Boolean(process.env.OPENCODE_API_KEY);
   await loadProjectEnv(workingDirectory);
@@ -887,22 +957,22 @@ async function doctorCommand(args: string[], workingDirectory: string): Promise<
 
   const chromiumPath = chromium.executablePath();
   const chromiumReady = (await missingFiles([chromiumPath])).length === 0;
+  const camoufox = await inspectCamoufoxInstall();
+  const browserStatuses = browserBinaryStatuses(browserProvider, chromiumReady, camoufox.ready);
   checks.push({
     id: "chromium",
     label: "Chromium",
-    status: chromiumReady ? "pass" : "fail",
+    status: browserStatuses.chromium,
     detail: chromiumReady ? `${basename(chromiumPath)} installed` : "browser binary not found",
-    ...(chromiumReady ? {} : { fix: "Run `mosaik setup` to install Chromium." }),
+    ...(chromiumReady ? {} : { fix: "Run `mosaik setup --browser chromium` to install Chromium." }),
   });
 
-  const camoufox = await inspectCamoufoxInstall();
-  const camoufoxRequired = (await loadMosaikConfig(options.dataDirectory)).browser === "camoufox";
   checks.push({
     id: "camoufox",
     label: "Camoufox",
-    status: camoufox.ready ? "pass" : camoufoxRequired ? "fail" : "warn",
+    status: browserStatuses.camoufox,
     detail: camoufox.detail,
-    ...(camoufox.ready ? {} : { fix: "Run `mosaik setup` to fetch Camoufox." }),
+    ...(camoufox.ready ? {} : { fix: "Run `mosaik setup --browser camoufox` to fetch Camoufox." }),
   });
 
   const keyReady = Boolean(process.env.OPENROUTER_API_KEY);
@@ -990,6 +1060,30 @@ async function commandOutput(
     child.once("close", (code) => {
       const output = (stdout.trim() || stderr.trim()).split("\n")[0] ?? "no output";
       resolvePromise({ ok: code === 0, output });
+    });
+  });
+}
+
+async function commandJsonOutput(executable: string, args: string[]): Promise<unknown> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+    child.once("error", rejectPromise);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        rejectPromise(
+          new Error(stderr.trim() || `Command exited with status ${code ?? "unknown"}`),
+        );
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(stdout));
+      } catch {
+        rejectPromise(new Error("Hermes returned invalid skill snapshot JSON"));
+      }
     });
   });
 }
