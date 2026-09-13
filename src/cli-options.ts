@@ -236,37 +236,6 @@ export function parseSetupCliArgs(args: string[]): SetupCliParseResult {
   return { help: false, browser };
 }
 
-export interface HermesCliOptions {
-  action: "install";
-}
-
-export type HermesCliParseResult = { help: true } | { help: false; options: HermesCliOptions };
-
-export const HERMES_CLI_HELP = `Install the Mosaik integration for Hermes Agent.
-
-Usage:
-  mosaik hermes install
-
-Options:
-  -h, --help                    Show this help
-`;
-
-export function parseHermesCliArgs(args: string[]): HermesCliParseResult {
-  const [subcommand, ...rest] = args;
-  if (subcommand === "--help" || subcommand === "-h") return { help: true };
-  if (subcommand !== "install")
-    throw new Error("The hermes command requires the install subcommand");
-  const parsed = parseArgs({
-    args: rest,
-    strict: true,
-    options: {
-      help: { type: "boolean", short: "h", default: false },
-    },
-  });
-  if (parsed.values.help) return { help: true };
-  return { help: false, options: { action: "install" } };
-}
-
 export type ConfigCliOptions =
   | { dataDirectory: string; setting: "browser"; browser: BrowserProvider }
   | { dataDirectory: string; setting: "model"; model: string }

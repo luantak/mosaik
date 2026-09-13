@@ -71,7 +71,6 @@ ${theme.bold("Commands")}
   ${theme.accent("pull")}      Pull learning from the remote library
   ${theme.accent("reset")}     Delete learned actions and automations
   ${theme.accent("setup")}     Install browser binaries
-  ${theme.accent("hermes")}    Install the Hermes integration
   ${theme.accent("doctor")}    Check that Mosaik is ready
   ${theme.accent("kernel")}    Deploy this project's site library
 

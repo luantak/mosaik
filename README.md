@@ -95,23 +95,22 @@ also selects a model for a task.
 
 ### Hermes Agent
 
-From an automation project, install the Hermes skill and Camoufox with one
-command:
+Install the integration through Hermes Agent:
 
 ```sh
-mosaik hermes install
+hermes skills install luantak/mosaik/integrations/hermes
 ```
 
-The command installs the package-version-pinned `mosaik` skill through Hermes'
-supported skill installer, verifies Hermes recorded that exact source, fetches
-only the Camoufox binary, and saves Camoufox as this project's default browser
-under `.mosaik`. It does not require or configure Hermes' separate Camofox
-server. Start a Hermes session, then ask for a reusable browser task in the same
-project directory.
+Hermes owns the integration and browser setup flow. Start Hermes in the Mosaik
+project you want it to use and ask for any browser task. On first use, the skill
+initializes the project if needed, selects Camoufox, installs its binary when
+missing, and verifies Mosaik before running the task. It does not require or
+configure Hermes' separate Camofox server.
 
-Hermes delegates the complete run to Mosaik. Mosaik keeps learned TypeScript,
-run evidence, and browser state in the project; Camoufox profiles live under
-`.mosaik/browser-profiles/`. These profiles are separate from Hermes Camofox
+Hermes prefers Mosaik for one-off and repeated browser work so future tasks can
+reuse learned site actions. Mosaik keeps learned TypeScript, run evidence, and
+browser state in the project; Camoufox profiles live under
+`.mosaik/camoufox-profiles/`. These profiles are separate from Hermes Camofox
 profiles and `browser.camofox.managed_persistence`.
 
 The interactive CLI will ask for a URL. Enter:

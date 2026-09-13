@@ -6,7 +6,6 @@ import {
   parseConfigCliArgs,
   parseDoctorCliArgs,
   parseInteractiveCliArgs,
-  parseHermesCliArgs,
   parseKernelCliArgs,
   parseProviderCliArgs,
   parsePullCliArgs,
@@ -75,17 +74,6 @@ test("setup CLI selects which browser binaries to install", () => {
   });
   assert.deepEqual(parseSetupCliArgs(["--help"]), { help: true });
   assert.throws(() => parseSetupCliArgs(["--browser", "firefox"]), /camoufox.*chromium.*all/);
-});
-
-test("Hermes CLI installs into the current Mosaik workspace", () => {
-  assert.deepEqual(parseHermesCliArgs(["install"]), {
-    help: false,
-    options: { action: "install" },
-  });
-  assert.deepEqual(parseHermesCliArgs(["--help"]), { help: true });
-  assert.throws(() => parseHermesCliArgs(["install", "--data-dir", "state"]), /Unknown option/);
-  assert.throws(() => parseHermesCliArgs([]), /install subcommand/);
-  assert.throws(() => parseHermesCliArgs(["remove"]), /install subcommand/);
 });
 
 test("config CLI sets browser and model defaults", () => {
