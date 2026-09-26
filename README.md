@@ -111,6 +111,10 @@ Keep sending tasks in the same session. `/login` starts the login flow on the
 current page, `/new` starts a fresh run, and `/help` lists the commands. Ctrl+C
 cancels the current prompt without closing the browser.
 
+For a repeatable, measured first-run/second-run example, see the
+[book catalogue demo](examples/books-catalogue/README.md). It runs on a public
+test site, checks the returned records, and shows the saved actions and automation.
+
 ## What you get to keep
 
 Learned actions and composed automations live in your project as editable
