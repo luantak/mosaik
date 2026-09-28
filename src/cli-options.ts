@@ -206,6 +206,36 @@ export function parseRunCliArgs(
   };
 }
 
+export type SetupBrowser = "camoufox" | "chromium" | "all";
+export type SetupCliParseResult = { help: true } | { help: false; browser: SetupBrowser };
+
+export const SETUP_CLI_HELP = `Install browser binaries used by Mosaik.
+
+Usage:
+  mosaik setup [options]
+
+Options:
+      --browser <provider>      Browser to install: camoufox, chromium, or all
+  -h, --help                    Show this help
+`;
+
+export function parseSetupCliArgs(args: string[]): SetupCliParseResult {
+  const parsed = parseArgs({
+    args,
+    strict: true,
+    options: {
+      browser: { type: "string", default: "all" },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (parsed.values.help) return { help: true };
+  const browser = parsed.values.browser;
+  if (browser !== "camoufox" && browser !== "chromium" && browser !== "all") {
+    throw new Error("--browser must be camoufox, chromium, or all");
+  }
+  return { help: false, browser };
+}
+
 export type ConfigCliOptions =
   | { dataDirectory: string; setting: "browser"; browser: BrowserProvider }
   | { dataDirectory: string; setting: "model"; model: string }

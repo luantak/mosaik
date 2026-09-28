@@ -47,8 +47,10 @@ mosaik setup
 mosaik doctor
 ```
 
-`setup` installs Chromium and fetches Camoufox. `doctor` checks the installation
-and tells you what needs fixing, including missing provider credentials.
+`setup` installs Chromium and fetches Camoufox. Use `mosaik setup --browser
+camoufox` or `mosaik setup --browser chromium` when you only need one browser.
+`doctor` checks the selected browser and tells you what needs fixing, including
+missing provider credentials.
 
 Create a directory for your automations. `mosaik init` makes a TypeScript project
 linked to your Mosaik checkout:
@@ -90,6 +92,26 @@ mosaik --model terra
 
 `luna` and `terra` are aliases for the Codex models. `mosaik run --model <id>`
 also selects a model for a task.
+
+### Hermes Agent
+
+Install the integration through Hermes Agent:
+
+```sh
+hermes skills install luantak/mosaik/integrations/hermes
+```
+
+Hermes owns the integration and browser setup flow. Start Hermes in the Mosaik
+project you want it to use and ask for any browser task. On first use, the skill
+initializes the project if needed, selects Camoufox, installs its binary when
+missing, and verifies Mosaik before running the task. It does not require or
+configure Hermes' separate Camofox server.
+
+Hermes prefers Mosaik for one-off and repeated browser work so future tasks can
+reuse learned site actions. Mosaik keeps learned TypeScript, run evidence, and
+browser state in the project; Camoufox profiles live under
+`.mosaik/camoufox-profiles/`. These profiles are separate from Hermes Camofox
+profiles and `browser.camofox.managed_persistence`.
 
 The interactive CLI will ask for a URL. Enter:
 
