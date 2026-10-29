@@ -371,3 +371,52 @@ test("an incomplete observed mutation is reviewed without replaying it", async (
   assert.equal(calls, 1);
   assert.equal(result.outcome?.status, "incomplete");
 });
+
+test("deterministic acceptance avoids all outcome model requests even with no model budget", async () => {
+  const result = execution();
+  result.metrics.modelRequests = 0;
+  result.execution!.task = {
+    status: "complete",
+    collected: 12,
+    failedItems: 0,
+    terminationReason: "requested-count",
+    errors: [],
+    outputPaths: ["results.ndjson"],
+    verification: "deterministic",
+  };
+  const completed = await completeTask(
+    { ...request, budgets: { ...request.budgets, maxModelRequests: 0 } },
+    {},
+    async () => result,
+    async () => {
+      throw new Error("Model review must not run");
+    },
+  );
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.metrics.modelRequests, 0);
+  assert.match(completed.answer!, /12 validated records/);
+});
+
+test("semantic review can be explicitly retained with deterministic acceptance", async () => {
+  const result = execution();
+  result.execution!.task = {
+    status: "complete",
+    collected: 1,
+    failedItems: 0,
+    terminationReason: "source-exhausted",
+    errors: [],
+    outputPaths: [],
+    verification: "deterministic",
+  };
+  let reviewed = 0;
+  await completeTask(
+    request,
+    { semanticReview: true },
+    async () => result,
+    async () => {
+      reviewed++;
+      return complete;
+    },
+  );
+  assert.equal(reviewed, 1);
+});

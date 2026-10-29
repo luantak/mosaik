@@ -97,11 +97,23 @@ export async function completeTask(
     add(result.metrics, result.trajectory);
     for (const key of Object.keys(timings) as (keyof typeof timings)[])
       timings[key] += result.metrics.timings?.[key] ?? 0;
-    actionCalls += result.execution?.actionCalls.length ?? 0;
+    actionCalls += result.execution?.actionCallCount ?? result.execution?.actionCalls.length ?? 0;
     if (result.status !== "completed") break;
     let assessment: TaskOutcome;
     const budget = remaining().budgets;
-    if (
+    const deterministic = result.execution?.task;
+    if (deterministic?.verification === "deterministic" && !options.semanticReview) {
+      assessment =
+        deterministic.status === "complete"
+          ? {
+              status: "complete",
+              answer: `Collected ${deterministic.collected} validated records; ${deterministic.terminationReason}. Output: ${deterministic.outputPaths.join(", ")}`,
+            }
+          : {
+              status: "incomplete",
+              reason: `Collected ${deterministic.collected}; ${deterministic.failedItems} failed items; ${deterministic.terminationReason}. ${deterministic.errors.join("; ")}`,
+            };
+    } else if (
       budget.maxModelRequests < 1 ||
       budget.maxRunCodeExecutions < 1 ||
       budget.maxNestedToolCalls < 1
@@ -151,7 +163,7 @@ export async function completeTask(
       outcome: assessment,
       automation: result.automation,
     });
-    if (assessment.status === "complete") break;
+    if (assessment.status === "complete" || result.execution?.job) break;
     // Never replay external side effects or actions whose safety is unknown.
     const attemptedActionNames = [
       ...(result.execution?.actionCalls.map((call) => call.name) ?? []),

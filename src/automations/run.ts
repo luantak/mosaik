@@ -1,3 +1,8 @@
+import { assessTask, resolveAcceptance } from "./acceptance.js";
+import { BatchRuntime, assessJob } from "../jobs/runtime.js";
+import { prepareDurableJob, type DurableRunOptions } from "../jobs/prepare.js";
+import { actionFingerprint } from "../jobs/fingerprint.js";
+import type { DurableJob } from "../jobs/store.js";
 import { collectPageNavigationEvidence } from "../runtime/page-evidence.js";
 import { HostActionError } from "./types.js";
 import { addStateImplementation } from "../capabilities/implementations.js";
@@ -40,32 +45,35 @@ import type {
   RepairCoordinationMetrics,
 } from "./types.js";
 
+export interface RunAutomationOptions {
+  registry: SiteActionRegistry;
+  deferVerificationFor?: readonly string[];
+  input?: Record<string, unknown>;
+  startUrl?: string;
+  timeoutMs?: number;
+  maxActionCalls?: number;
+  stepTimeoutMs?: number;
+  haltBefore?: (step: Step) => boolean;
+  agent?: RepairAgent;
+  repairFlights?: RepairFlightCoordinator;
+  beforeSharedRepair?: () => Promise<void>;
+  onActionStart?: (event: { name: string; args: unknown }) => void;
+  onActionResult?: (event: { name: string; result: unknown }) => void;
+  onBrowserActionStart?: () => void;
+  capturePageNavigation?: boolean;
+  signal?: AbortSignal;
+  outputDirectory?: string;
+  onFileWrite?: (file: AutomationOutputFile) => void;
+  libraryRoot?: string;
+  humanize?: boolean;
+  loadAutomationSource?: (automationId: string) => Promise<string | undefined>;
+  job?: DurableRunOptions;
+}
+
 export async function runAutomation(
   browser: Browser | BrowserSession,
   automation: ComposedAutomation,
-  options: {
-    registry: SiteActionRegistry;
-    deferVerificationFor?: readonly string[];
-    input?: Record<string, unknown>;
-    startUrl?: string;
-    timeoutMs?: number;
-    maxActionCalls?: number;
-    stepTimeoutMs?: number;
-    haltBefore?: (step: Step) => boolean;
-    agent?: RepairAgent;
-    repairFlights?: RepairFlightCoordinator;
-    beforeSharedRepair?: () => Promise<void>;
-    onActionStart?: (event: { name: string; args: unknown }) => void;
-    onActionResult?: (event: { name: string; result: unknown }) => void;
-    onBrowserActionStart?: () => void;
-    capturePageNavigation?: boolean;
-    signal?: AbortSignal;
-    outputDirectory?: string;
-    onFileWrite?: (file: AutomationOutputFile) => void;
-    libraryRoot?: string;
-    humanize?: boolean;
-    loadAutomationSource?: (automationId: string) => Promise<string | undefined>;
-  },
+  options: RunAutomationOptions,
 ): Promise<AutomationExecutionResult> {
   let actions: SiteActionDefinition[];
   try {
@@ -80,18 +88,70 @@ export async function runAutomation(
     };
   }
 
+  let job: DurableJob | undefined;
+  let batchRuntime: BatchRuntime | undefined;
+  const cancellation = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const timer = setTimeout(
+    () => cancellation.abort(`Automation timed out after ${timeoutMs}ms`),
+    timeoutMs,
+  );
+  timer.unref();
+  options = {
+    ...options,
+    signal: options.signal
+      ? AbortSignal.any([options.signal, cancellation.signal])
+      : cancellation.signal,
+  };
   try {
-    const result = await executeComposedAutomationOnce(browser, automation, actions, options);
+    if (automation.acceptance) resolveAcceptance(automation.acceptance, options.input ?? {});
+    job = await prepareDurableJob(automation, actions, options);
+    batchRuntime = job ? new BatchRuntime(job, options.signal) : undefined;
+    const result = await executeComposedAutomationOnce(
+      browser,
+      automation,
+      actions,
+      options,
+      batchRuntime,
+    );
     const current = await resolveAutomationActions(options.registry, automation);
-    return { ...result, automation: bindAutomationDependencies(automation, current) };
+    const summary = batchRuntime?.finish(result.success, result.error, options.signal?.aborted);
+    return {
+      ...result,
+      automation: bindAutomationDependencies(automation, current),
+      ...(summary
+        ? { job: summary, task: assessJob(summary) }
+        : {
+            task: assessTask(result.value, automation.acceptance, options.input ?? {}, {
+              success: result.success,
+              ...(options.signal?.aborted ? { interrupted: true } : {}),
+              ...(result.error ? { error: result.error } : {}),
+              outputPaths: result.files?.map((file) => file.path) ?? [],
+            }),
+          }),
+    };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const summary = batchRuntime?.finish(false, message, options.signal?.aborted);
     return {
       success: false,
       logs: [],
       actionCalls: [],
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
       automation,
+      ...(summary
+        ? { job: summary, task: assessJob(summary) }
+        : {
+            task: assessTask(undefined, automation.acceptance, options.input ?? {}, {
+              success: false,
+              ...(options.signal?.aborted ? { interrupted: true } : {}),
+              error: message,
+            }),
+          }),
     };
+  } finally {
+    clearTimeout(timer);
+    job?.close();
   }
 }
 
@@ -99,29 +159,8 @@ async function executeComposedAutomationOnce(
   browser: Browser | BrowserSession,
   automation: ComposedAutomation,
   actions: SiteActionDefinition[],
-  options: {
-    registry: SiteActionRegistry;
-    deferVerificationFor?: readonly string[];
-    agent?: RepairAgent;
-    repairFlights?: RepairFlightCoordinator;
-    beforeSharedRepair?: () => Promise<void>;
-    input?: Record<string, unknown>;
-    startUrl?: string;
-    timeoutMs?: number;
-    maxActionCalls?: number;
-    stepTimeoutMs?: number;
-    haltBefore?: (step: Step) => boolean;
-    onActionStart?: (event: { name: string; args: unknown }) => void;
-    onActionResult?: (event: { name: string; result: unknown }) => void;
-    onBrowserActionStart?: () => void;
-    capturePageNavigation?: boolean;
-    signal?: AbortSignal;
-    outputDirectory?: string;
-    onFileWrite?: (file: AutomationOutputFile) => void;
-    libraryRoot?: string;
-    humanize?: boolean;
-    loadAutomationSource?: (automationId: string) => Promise<string | undefined>;
-  },
+  options: RunAutomationOptions,
+  batchRuntime?: BatchRuntime,
 ): Promise<AutomationExecutionResult> {
   const runId = randomUUID();
   const executeOnPage = async (page: import("playwright").Page) => {
@@ -334,6 +373,17 @@ async function executeComposedAutomationOnce(
             );
             return;
           }
+          // The live action and regression checks have succeeded. Journal the accepted
+          // implementation before library persistence so resume can reconcile a crash here.
+          batchRuntime?.job.acceptRepair({
+            actionId: action.id,
+            fromFingerprint: actionFingerprint(candidate.base),
+            toFingerprint: actionFingerprint(action),
+            fromVersion: candidate.base.version,
+            toVersion: action.version,
+            action,
+            evidence: `Accepted after live action success; ${coverage.filter((check) => check.status === "pass").length} historical checks passed`,
+          });
           const accepted = await options.registry.updateActionIfVersion({
             siteId: action.siteId,
             actionId: action.id,
@@ -341,7 +391,17 @@ async function executeComposedAutomationOnce(
             next: action,
           });
           if (accepted.updated) metrics.repairsCommitted += 1;
-          else if (candidate.owned && candidate.advanced) metrics.staleRepairConflicts += 1;
+          else {
+            if (candidate.owned && candidate.advanced) metrics.staleRepairConflicts += 1;
+            if (
+              batchRuntime &&
+              (!accepted.current ||
+                actionFingerprint(accepted.current) !== actionFingerprint(action))
+            )
+              throw new Error(
+                "Accepted repair conflicts with an unrelated action change; durable execution stopped",
+              );
+          }
           if (!candidate.owned) metrics.callersRecoveredFromSharedRepair += 1;
           recovery = {
             kind: "shared-action-repair",
@@ -374,7 +434,16 @@ async function executeComposedAutomationOnce(
         async invoke(name: string, args: unknown) {
           throwIfAborted(options.signal);
           options.onActionStart?.({ name, args });
-          const result = await base.invoke(name, args);
+          const action = actions.find((action) => action.name === name)!;
+          batchRuntime?.beforeAction(action, args);
+          let result: unknown;
+          try {
+            result = await base.invoke(name, args);
+            batchRuntime?.actionSucceeded(action);
+          } catch (error) {
+            batchRuntime?.actionFailed(error);
+            throw error;
+          }
           options.onActionResult?.({ name, result });
           throwIfAborted(options.signal);
           return result;
@@ -382,6 +451,7 @@ async function executeComposedAutomationOnce(
       };
       const result = await executeComposedAutomation(automation, {
         host,
+        ...(batchRuntime ? { batchRuntime } : {}),
         actionNames: actions.map((action) => action.name),
         actions,
         ...(options.input === undefined ? {} : { input: options.input }),

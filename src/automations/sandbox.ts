@@ -1,3 +1,5 @@
+import { BATCH_WORKER } from "../jobs/worker.js";
+import type { BatchRuntime } from "../jobs/runtime.js";
 import { normalizeAutomationModule } from "../library/automation-module.js";
 import { DownloadQueue } from "./download-queue.js";
 import { Context } from "@deepseek-ai/cordis";
@@ -33,6 +35,7 @@ export async function executeComposedAutomation(
   automation: ComposedAutomation,
   options: {
     host: ActionHost;
+    batchRuntime?: BatchRuntime;
     input?: Record<string, unknown>;
     actionNames?: string[];
     actions?: SiteActionDefinition[];
@@ -82,6 +85,7 @@ export async function executeComposedAutomation(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxActionCalls = options.maxActionCalls ?? DEFAULT_MAX_ACTION_CALLS;
   const actionCalls: Array<{ name: string; args: unknown }> = [];
+  let actionCallCount = 0;
   const input = toJson(options.input ?? {}, "automation input");
   const controller = new AbortController();
   const files: AutomationOutputFile[] = [];
@@ -98,7 +102,7 @@ export async function executeComposedAutomation(
       name,
       async (args: unknown): Promise<Json> => {
         if (controller.signal.aborted) throw abortError(controller.signal.reason);
-        if (actionCalls.length >= maxActionCalls) {
+        if (actionCallCount >= maxActionCalls) {
           terminalError = `Action call limit of ${maxActionCalls} exceeded`;
           controller.abort(terminalError);
           throw new Error(terminalError);
@@ -114,9 +118,14 @@ export async function executeComposedAutomation(
           }
         }
         const normalizedArgs = args ?? {};
-        actionCalls.push({ name, args: normalizedArgs });
+        actionCallCount++;
+        if (!options.batchRuntime || actionCalls.length < 100)
+          actionCalls.push({ name, args: normalizedArgs });
         try {
-          return toJson(await options.host.invoke(name, normalizedArgs), `${name} result`);
+          const result = toJson(await options.host.invoke(name, normalizedArgs), `${name} result`);
+          if (Buffer.byteLength(JSON.stringify(result)) > MAX_OUTPUT_BYTES)
+            throw new Error(`${name} result exceeds the ${MAX_OUTPUT_BYTES} byte boundary limit`);
+          return result;
         } catch (error) {
           lastHostError = messageOf(error);
           if (isHostFailure(error)) {
@@ -242,6 +251,24 @@ export async function executeComposedAutomation(
         },
         { global: "actions", functions: actions },
         { global: "files", functions: fileBindings },
+        {
+          global: "batch",
+          functions: options.batchRuntime
+            ? Object.fromEntries(
+                Object.entries(options.batchRuntime.bindings()).map(([name, fn]) => [
+                  name,
+                  async (arg: unknown) =>
+                    toJson(await (fn as (arg: unknown) => Promise<unknown>)(arg), `batch.${name}`),
+                ]),
+              )
+            : {
+                configure: async () => {
+                  throw new Error(
+                    "Durable batch execution is unavailable; declare durable: true or use ctx.batch.run",
+                  );
+                },
+              },
+        },
       ],
       signal: controller.signal,
     });
@@ -259,6 +286,7 @@ export async function executeComposedAutomation(
         success: false,
         logs: result.logs,
         actionCalls,
+        actionCallCount,
         ...(files.length === 0 ? {} : { files }),
         error,
         ...(failure === undefined ? {} : { failure }),
@@ -270,6 +298,7 @@ export async function executeComposedAutomation(
       ...(result.value === undefined ? {} : { value: result.value }),
       logs: result.logs,
       actionCalls,
+      actionCallCount,
       ...(files.length === 0 ? {} : { files }),
     };
   } finally {
@@ -290,6 +319,7 @@ function wrapAutomation(source: string, actionNames: string[]): string {
 const exports = {};
 const module = { exports };
 function defineAutomation(handler) { return handler; }
+${BATCH_WORKER}
 ${source}
 const input = await mosaik.input({});
 const pendingDownloads = new Set();
@@ -301,6 +331,7 @@ function download(request) {
 }
 const ctx = {
   input,
+  batch: { run: runBatch },
   output: undefined,
   log(message) { console.log(String(message)); },
   actions: {

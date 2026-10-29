@@ -213,6 +213,10 @@ export function createCompositionSession(input: {
         id: automation.id,
         siteId: normalizeSiteId(automation.siteId),
         source: automation.source,
+        ...(automation.acceptance ? { acceptance: automation.acceptance } : {}),
+        ...(automation.durable ? { durable: true } : {}),
+        ...(automation.inputs ? { inputs: automation.inputs } : {}),
+        ...(automation.startUrl ? { startUrl: automation.startUrl } : {}),
         version:
           typeof automation.version === "number" && automation.version > 0 ? automation.version : 1,
         actionIds: selected.map((action) => action.id),

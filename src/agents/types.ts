@@ -106,6 +106,8 @@ export interface CompositionProgressEvent {
 }
 
 export interface CompositionRunOptions {
+  /** Force optional semantic review even when deterministic acceptance is available. */
+  semanticReview?: boolean;
   signal?: AbortSignal;
   onProgress?: (event: CompositionProgressEvent) => void;
   runDirectory?: string;

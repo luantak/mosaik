@@ -223,6 +223,8 @@ export function openFileRepository(root: string | RepositoryRoots): MosaikStore 
         id: automation.id,
         siteId,
         version: automation.version,
+        ...(automation.acceptance === undefined ? {} : { acceptance: automation.acceptance }),
+        ...(automation.durable === undefined ? {} : { durable: automation.durable }),
         ...(automation.inputs === undefined ? {} : { inputs: automation.inputs }),
         ...(automation.startUrl === undefined ? {} : { startUrl: automation.startUrl }),
         ...(automation.actionIds === undefined ? {} : { actionIds: automation.actionIds }),
@@ -372,6 +374,10 @@ function asAutomation(raw: Record<string, unknown>): ComposedAutomation {
     siteId: asString(raw.siteId, "siteId"),
     source: asString(raw.source, "source"),
     version: asNumber(raw.version, "version"),
+    ...(raw.acceptance === undefined
+      ? {}
+      : { acceptance: raw.acceptance as NonNullable<ComposedAutomation["acceptance"]> }),
+    ...(raw.durable === true ? { durable: true } : {}),
     ...(raw.inputs === undefined ? {} : { inputs: asSchema(raw.inputs) }),
     ...(raw.startUrl === undefined ? {} : { startUrl: asString(raw.startUrl, "startUrl") }),
     ...(actionIds === undefined ? {} : { actionIds }),

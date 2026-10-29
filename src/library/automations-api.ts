@@ -1,3 +1,11 @@
+import type { BatchConfiguration, BatchPage, JobSummary } from "../jobs/types.js";
+export type {
+  BatchConfiguration,
+  BatchAcceptance,
+  BatchPage,
+  BatchItem,
+  JobSummary,
+} from "../jobs/types.js";
 import type { Mosaik } from "../mosaik.js";
 
 export interface AutomationOutputFile {
@@ -22,6 +30,16 @@ export interface AutomationContext<
   TInput extends Record<string, unknown> = Record<string, unknown>,
 > {
   input: TInput;
+  /** Read-only durable collection. Each callback must restore state through absolute navigation.
+   * Return summaries, not accumulated records: results are committed incrementally by the host. */
+  batch: {
+    run: (
+      configuration: BatchConfiguration & {
+        list: (cursor: string) => Promise<BatchPage>;
+        extract: (item: Record<string, unknown>) => Promise<unknown>;
+      },
+    ) => Promise<JobSummary>;
+  };
   output?: unknown;
   log: (message: unknown) => void;
   actions: Record<string, (args?: Record<string, unknown>) => Promise<unknown>>;

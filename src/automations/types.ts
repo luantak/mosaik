@@ -17,6 +17,8 @@ export interface ComposedAutomation {
   /** Public parameters, validated before opening a browser for saved execution. */
   inputs?: ActionSchema;
   startUrl?: string;
+  acceptance?: import("./acceptance.js").TaskAcceptance;
+  durable?: boolean;
   actionIds?: string[];
   dependencies?: AutomationDependency[];
 }
@@ -54,6 +56,9 @@ export interface AutomationExecutionResult {
   discoveryObservations?: unknown[];
   coverage?: import("../evidence/types.js").CaseCheck[];
   success: boolean;
+  task?: import("./acceptance.js").TaskAssessment;
+  job?: import("../jobs/types.js").JobSummary;
+  actionCallCount?: number;
   value?: unknown;
   logs: string[];
   pageNavigation?: import("../runtime/page-evidence.js").PageNavigationEvidence;

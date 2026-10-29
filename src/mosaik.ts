@@ -1,3 +1,5 @@
+import { automationInputSchema, validateAutomationInputs } from "./library/automation-inputs.js";
+import type { DurableRunOptions } from "./jobs/prepare.js";
 import { readFile, realpath } from "node:fs/promises";
 import { basename, dirname, extname, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +26,7 @@ export interface MosaikOptions extends BrowserSessionOptions {
   maxActionCalls?: number;
   outputDirectory?: string;
   signal?: AbortSignal;
+  job?: DurableRunOptions;
   /** Enable live repair with a caller-supplied agent. Defaults to false. */
   repair?: false | { agent: RepairAgent };
 }
@@ -117,6 +120,7 @@ export async function createMosaik(options: MosaikOptions = {}): Promise<Mosaik>
       visiting.delete(path);
     }
     await load(entry, 0);
+    validateAutomationInputs(automationInputSchema(await readFile(entry, "utf8")), input);
     const siteId = decodeURIComponent(basename(siteDirectory));
     if ([...actions.values()].some((action) => action.siteId !== siteId))
       throw new Error("Imported action belongs to a different site");
@@ -127,6 +131,7 @@ export async function createMosaik(options: MosaikOptions = {}): Promise<Mosaik>
       { id, siteId, version: 1, source: sources.get(id)! },
       {
         registry,
+        ...(options.job ? { job: options.job } : {}),
         ...(options.humanize === undefined ? {} : { humanize: options.humanize }),
         ...(options.repair ? { agent: options.repair.agent } : {}),
         input,

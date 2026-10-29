@@ -1,3 +1,5 @@
+import type { TaskAcceptance } from "../../automations/acceptance.js";
+import { isDurableAutomation } from "../../jobs/prepare.js";
 import { readDiscoveryEvidence } from "./discovery-evidence.js";
 import { toSummary } from "../../capabilities/lookup.js";
 import type { SiteActionDefinition, SiteActionSummary } from "../../capabilities/types.js";
@@ -287,18 +289,22 @@ export async function registerCompositionTools(
     defineTool({
       name: "prepareComposition",
       description:
-        "Inspect the site library, reuse compatible actions, and discover missing semantic site actions. Navigation to the exact startUrl is removed because the runtime already opens the current turn's page. Do not include runtimeHandled stages in the automation or discovery prerequisites. The same run_code automation may use this result to construct TypeScript and call finishComposition.",
+        "Inspect the site library, reuse compatible actions, and discover missing semantic site actions. Set durable:true for collection workflows: their navigation actions must restore every page/item boundary. Otherwise navigation to the exact startUrl is removed because the runtime opens it. Do not include runtimeHandled stages in the automation or discovery prerequisites. The same run_code automation may use this result to construct TypeScript and call finishComposition.",
       parameters: {
         siteId: { type: "string", required: true },
         task: { type: "string", required: true },
         needs: { type: "array", required: true, items: needParameter },
+        durable: { type: "boolean" },
       },
       output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
       execute: async (args) => {
         const proposed = args.needs as CapabilityNeed[];
         if (options.compact === true) assertStagedWorkflow(proposed);
         assertRequestedWorkflow(args.task, proposed);
-        const { needs, runtimeHandled } = projectSemanticWorkflow(proposed, options.startUrl);
+        const { needs, runtimeHandled } =
+          args.durable === true
+            ? { needs: proposed, runtimeHandled: [] }
+            : projectSemanticWorkflow(proposed, options.startUrl);
         if (needs.length === 0) {
           throw new Error("At least one semantic site capability is required");
         }
@@ -410,6 +416,7 @@ export async function registerCompositionTools(
         needs: { type: "array", items: needParameter },
         automationId: { type: "string" },
         automationSource: { type: "string", required: true },
+        acceptance: { type: "object", properties: {}, additionalProperties: true },
       },
       output: { schema: { type: "object", additionalProperties: true }, render: renderJson },
       execute: async (args) => {
@@ -423,7 +430,9 @@ export async function registerCompositionTools(
             "finishComposition must use the exact workflow stages previously prepared",
           );
         }
-        const { needs, runtimeHandled } = projectSemanticWorkflow(proposed, options.startUrl);
+        const { needs, runtimeHandled } = /\bctx\.batch\.run\s*\(/.test(args.automationSource)
+          ? { needs: proposed, runtimeHandled: [] }
+          : projectSemanticWorkflow(proposed, options.startUrl);
         assertRuntimeHandledNotReplayed(runtimeHandled, args.automationSource);
         assertTaskLogic(args.task, args.automationSource);
         const composed = await session.compose({
@@ -434,7 +443,11 @@ export async function registerCompositionTools(
           automationSource: args.automationSource,
         });
         assertWorkflowAutomation(needs, composed.resolved, args.automationSource);
-        const saved = await session.saveAutomation(composed.automation);
+        const saved = await session.saveAutomation({
+          ...composed.automation,
+          ...(args.acceptance ? { acceptance: args.acceptance as unknown as TaskAcceptance } : {}),
+          ...(isDurableAutomation(composed.automation) ? { durable: true } : {}),
+        });
         return asJson({
           ...saved,
           reused: composed.reused,
@@ -744,7 +757,11 @@ function assertTaskLogic(task: string, source: string): void {
   if (/\bdownload\b/.test(normalized) && !/\bctx\.files\.download\s*\(/.test(source)) {
     throw new Error("Download tasks must save files with ctx.files.download");
   }
-  if (/\b(?:every|each|all)\b/.test(normalized) && !/\b(?:for|while)\s*\(/.test(source)) {
+  if (
+    /\b(?:every|each|all)\b/.test(normalized) &&
+    !/\b(?:for|while)\s*\(/.test(source) &&
+    !/\bctx\.batch\.run\s*\(/.test(source)
+  ) {
     throw new Error("Tasks over every matching item require a TypeScript loop");
   }
   if (/\b(?:under|below|less than)\b/.test(normalized)) {
@@ -808,7 +825,7 @@ function findActionCalls(source: string, action: string): number[] {
 
 function findLoopRanges(source: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  const pattern = /\b(?:for|while)\s*\([^)]*\)\s*\{/g;
+  const pattern = /\b(?:for|while)\s*\([^)]*\)\s*\{|\bextract\s*:\s*async\s*\([^)]*\)\s*=>\s*\{/g;
   for (const match of source.matchAll(pattern)) {
     const open = (match.index ?? 0) + match[0].lastIndexOf("{");
     const close = matchingBrace(source, open);

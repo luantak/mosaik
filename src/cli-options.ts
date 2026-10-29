@@ -218,6 +218,7 @@ export interface ExecuteCliOptions extends Omit<
   timeoutMs: number;
   maxActionCalls: number;
   outputDirectory?: string;
+  jobDirectory?: string;
 }
 
 export const EXECUTE_CLI_HELP = `Execute a saved automation with new inputs, without composition or model calls.
@@ -232,6 +233,7 @@ Options:
   -u, --url <url>               Override the saved starting URL
       --data-dir <directory>    Mosaik data directory, default .mosaik
       --output-dir <directory>  Output directory, default .mosaik/runs/<id>/output
+      --job-dir <directory>     Durable job directory for a batch extraction
       --timeout <ms>            Runtime timeout, default 180000
       --max-action-calls <n>    Runtime action limit, default 1000
       --browser <provider>      local, camoufox, or kernel
@@ -246,6 +248,7 @@ Options:
   -h, --help                    Show this help
 
 Execution success is separate from task completion. External side effects are refused.
+Exit codes: 0 complete, 2 incomplete/unverified, 1 failed, 130 interrupted.
 `;
 
 export function parseExecuteCliArgs(
@@ -263,6 +266,7 @@ export function parseExecuteCliArgs(
       "input-json": { type: "string" },
       "data-dir": { type: "string" },
       "output-dir": { type: "string" },
+      "job-dir": { type: "string" },
       timeout: { type: "string", default: "180000" },
       "max-action-calls": { type: "string", default: "1000" },
       browser: { type: "string" },
@@ -290,7 +294,9 @@ export function parseExecuteCliArgs(
   ];
   for (const [key, value] of Object.entries(parsed.values)) {
     if (
-      ["site", "url", "timeout", "max-action-calls", "output-dir", "help"].includes(key) ||
+      ["site", "url", "timeout", "max-action-calls", "output-dir", "job-dir", "help"].includes(
+        key,
+      ) ||
       value === undefined ||
       value === false
     )
@@ -321,6 +327,133 @@ export function parseExecuteCliArgs(
       ...(parsed.values["output-dir"] === undefined
         ? {}
         : { outputDirectory: resolve(workingDirectory, parsed.values["output-dir"]) }),
+      ...(parsed.values["job-dir"] === undefined
+        ? {}
+        : { jobDirectory: resolve(workingDirectory, parsed.values["job-dir"]) }),
+    },
+  };
+}
+
+export type ResumeCliOptions = Omit<
+  ExecuteCliOptions,
+  "automationId" | "siteId" | "inputs" | "startUrl" | "jobDirectory" | "outputDirectory"
+> & { jobDirectory: string };
+
+export const RESUME_CLI_HELP = `Resume a durable extraction from its last committed item/page boundary.
+
+Usage:
+  mosaik resume <job-directory> [options]
+
+Run this from the original project directory. Automation, inputs and starting URL
+come from the job. Changed source or dependencies are rejected before execution.
+
+Options:
+      --data-dir <directory>    Mosaik data directory, default .mosaik
+      --timeout <ms>            Runtime timeout for this invocation, default 180000
+      --max-action-calls <n>    Action limit for this invocation, default 1000
+      --browser <provider>      local, camoufox, or kernel
+      --kernel-profile <name>   Kernel profile name to load and save
+      --kernel-auth-connection <id>  Authenticated Kernel connection to load
+      --kernel-stealth          Enable Kernel stealth mode
+      --kernel-timeout <secs>   Kernel inactivity timeout, default 300
+      --headless                Hide the browser window
+      --humanize                Use human-like interactions
+      --no-humanize             Disable configured humanization
+      --json                    Print the full execution report as JSON
+  -h, --help                    Show this help
+
+Exit codes: 0 complete, 2 incomplete/unverified, 1 failed, 130 interrupted.
+`;
+
+export function parseResumeCliArgs(
+  args: string[],
+  workingDirectory = process.cwd(),
+): { help: true } | { help: false; options: ResumeCliOptions } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      "data-dir": { type: "string" },
+      timeout: { type: "string" },
+      "max-action-calls": { type: "string" },
+      browser: { type: "string" },
+      "kernel-profile": { type: "string" },
+      "kernel-auth-connection": { type: "string" },
+      "kernel-stealth": { type: "boolean" },
+      "kernel-timeout": { type: "string" },
+      headless: { type: "boolean" },
+      humanize: { type: "boolean" },
+      "no-humanize": { type: "boolean" },
+      json: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+  if (parsed.values.help) return { help: true };
+  if (parsed.positionals.length !== 1 || !parsed.positionals[0]?.trim())
+    throw new Error("Pass one durable job directory");
+  const common = ["resume", "--site", "unused.invalid"];
+  for (const [key, value] of Object.entries(parsed.values)) {
+    if (value === undefined || value === false) continue;
+    if (value === true) common.push(`--${key}`);
+    else common.push(`--${key}`, value);
+  }
+  const base = parseExecuteCliArgs(common, workingDirectory);
+  if (base.help) throw new Error("Unexpected resume help");
+  const {
+    automationId: _id,
+    siteId: _site,
+    inputs: _inputs,
+    startUrl: _url,
+    jobDirectory: _job,
+    outputDirectory: _output,
+    ...options
+  } = base.options;
+  return {
+    help: false,
+    options: { ...options, jobDirectory: resolve(workingDirectory, parsed.positionals[0]) },
+  };
+}
+
+export const JOBS_CLI_HELP = `Inspect durable progress or export a fresh snapshot of committed records.
+
+Usage:
+  mosaik jobs inspect <job-directory> [--json]
+  mosaik jobs export <job-directory> [--json]
+
+Inspection works while a job runs. Export requires an inactive job and acquires
+its process lock; it does not execute browser actions or change retry progress.
+results.ndjson and failures.ndjson are replaceable snapshots of job.sqlite.
+`;
+
+export function parseJobsCliArgs(
+  args: string[],
+  workingDirectory = process.cwd(),
+):
+  | { help: true }
+  | {
+      help: false;
+      options: { operation: "inspect" | "export"; jobDirectory: string; json: boolean };
+    } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+  if (parsed.values.help) return { help: true };
+  const [operation, directory, ...extra] = parsed.positionals;
+  if ((operation !== "inspect" && operation !== "export") || !directory?.trim() || extra.length)
+    throw new Error("Usage: mosaik jobs inspect|export <job-directory>");
+  return {
+    help: false,
+    options: {
+      operation,
+      jobDirectory: resolve(workingDirectory, directory),
+      json: parsed.values.json,
     },
   };
 }

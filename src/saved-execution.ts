@@ -11,6 +11,8 @@ import { runAutomation } from "./automations/run.js";
 import type { AutomationExecutionResult, ComposedAutomation } from "./automations/types.js";
 import type { BrowserSession } from "./runtime/session.js";
 import type { Browser } from "playwright";
+import type { TaskAssessment } from "./automations/acceptance.js";
+import { fingerprint } from "./jobs/fingerprint.js";
 
 export interface PreparedSavedAutomation {
   automation: ComposedAutomation;
@@ -93,6 +95,45 @@ export async function prepareSavedAutomation(
   };
 }
 
+/** Resume parameters come only from the durable journal, never new caller input. */
+export async function prepareSavedResume(
+  store: MosaikStore,
+  directory: string,
+): Promise<PreparedSavedAutomation> {
+  const { inspectJob } = await import("./jobs/store.js");
+  const { metadata, summary } = inspectJob(directory);
+  if (summary.status === "running")
+    throw new Error("Job is locked by a running process; simultaneous resume is unsafe");
+  const prepared = await prepareSavedAutomation(store, {
+    siteId: metadata.automation.siteId,
+    automationId: metadata.automation.id,
+    inputs: metadata.input,
+    ...(metadata.startUrl === undefined ? {} : { startUrl: metadata.startUrl }),
+  });
+  if (
+    prepared.automation.source !== metadata.automation.source ||
+    prepared.automation.version !== metadata.automation.version ||
+    fingerprint(prepared.input) !== fingerprint(metadata.input) ||
+    (metadata.startUrl !== undefined && prepared.startUrl !== new URL(metadata.startUrl).href)
+  )
+    throw new Error("Job is incompatible with the saved automation or inputs; start a new job");
+  const { prepareResumeMetadata } = await import("./jobs/prepare.js");
+  const current = await prepareResumeMetadata(
+    directory,
+    prepared.automation,
+    await resolveAutomationActions(store.siteActions, prepared.automation),
+    {
+      input: prepared.input,
+      startUrl: prepared.startUrl,
+      libraryRoot: store.libraryRoot,
+      loadAutomationSource: async (id) => prepared.sources.get(id),
+    },
+  );
+  if (current.runtimeFingerprint !== metadata.runtimeFingerprint)
+    throw new Error("Job is incompatible with the current runtime fingerprint; start a new job");
+  return prepared;
+}
+
 export async function executeSavedAutomation(
   browser: Browser | BrowserSession,
   store: MosaikStore,
@@ -103,6 +144,7 @@ export async function executeSavedAutomation(
     outputDirectory: string;
     signal?: AbortSignal;
     humanize?: boolean;
+    job?: { directory: string; resume?: boolean };
   },
 ): Promise<AutomationExecutionResult> {
   return runAutomation(browser, prepared.automation, {
@@ -114,6 +156,49 @@ export async function executeSavedAutomation(
     loadAutomationSource: async (id) => prepared.sources.get(id),
     haltBefore: (step) => step.safety === "external-side-effect",
   });
+}
+
+export function savedExecutionExitCode(task: TaskAssessment): number {
+  return task.status === "complete"
+    ? 0
+    : task.status === "incomplete"
+      ? 2
+      : task.status === "interrupted"
+        ? 130
+        : 1;
+}
+
+export function savedJobResumeCommand(
+  directory: string,
+  options: {
+    dataDirectory?: string;
+    browser?: string;
+    headless?: boolean;
+    humanize?: boolean;
+    kernelProfile?: string;
+    kernelAuthConnection?: string;
+    kernelStealth?: boolean;
+    timeoutMs?: number;
+    maxActionCalls?: number;
+  } = {},
+): string {
+  return [
+    "mosaik resume",
+    quoteShell(directory),
+    ...(options.dataDirectory ? ["--data-dir", quoteShell(options.dataDirectory)] : []),
+    ...(options.browser ? ["--browser", quoteShell(options.browser)] : []),
+    ...(options.headless ? ["--headless"] : []),
+    ...(options.humanize === undefined ? [] : [options.humanize ? "--humanize" : "--no-humanize"]),
+    ...(options.kernelProfile ? ["--kernel-profile", quoteShell(options.kernelProfile)] : []),
+    ...(options.kernelAuthConnection
+      ? ["--kernel-auth-connection", quoteShell(options.kernelAuthConnection)]
+      : []),
+    ...(options.kernelStealth ? ["--kernel-stealth"] : []),
+    ...(options.timeoutMs === undefined ? [] : ["--timeout", String(options.timeoutMs)]),
+    ...(options.maxActionCalls === undefined
+      ? []
+      : ["--max-action-calls", String(options.maxActionCalls)]),
+  ].join(" ");
 }
 
 export async function inspectSavedAutomation(store: MosaikStore, siteId: string, id: string) {

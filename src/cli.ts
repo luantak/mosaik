@@ -44,6 +44,10 @@ import {
   EXECUTE_CLI_HELP,
   parseAutomationsCliArgs,
   parseExecuteCliArgs,
+  parseResumeCliArgs,
+  parseJobsCliArgs,
+  RESUME_CLI_HELP,
+  JOBS_CLI_HELP,
   CONFIG_CLI_HELP,
   DOCTOR_CLI_HELP,
   INIT_CLI_HELP,
@@ -62,6 +66,7 @@ import {
   PROVIDER_CLI_HELP,
   RUN_CLI_HELP,
   type RunCliOptions,
+  type ExecuteCliOptions,
 } from "./cli-options.js";
 import {
   createTheme,
@@ -94,9 +99,16 @@ import {
   executeSavedAutomation,
   inspectSavedAutomation,
   prepareSavedAutomation,
+  prepareSavedResume,
   savedAutomationRerunCommand,
+  savedExecutionExitCode,
+  savedJobResumeCommand,
   persistSavedExecutionReport,
+  type PreparedSavedAutomation,
 } from "./saved-execution.js";
+import { assessTask } from "./automations/acceptance.js";
+import type { MosaikStore } from "./persist/repository.js";
+import type { JobSummary } from "./jobs/types.js";
 import { automationSourcePath } from "./library/paths.js";
 import { initializeMosaikProject } from "./init.js";
 import {
@@ -124,6 +136,8 @@ const COMMANDS = [
   "init",
   "run",
   "execute",
+  "resume",
+  "jobs",
   "automations",
   "login",
   "provider",
@@ -153,6 +167,10 @@ export async function main(args: string[], workingDirectory = process.cwd()): Pr
       return runCommand(rest, workingDirectory);
     case "execute":
       return executeCommand(rest, workingDirectory);
+    case "resume":
+      return resumeCommand(rest, workingDirectory);
+    case "jobs":
+      return jobsCommand(rest, workingDirectory);
     case "automations":
       return automationsCommand(rest, workingDirectory);
     case "init":
@@ -823,12 +841,84 @@ async function executeCommand(args: string[], workingDirectory: string): Promise
   });
   // This preflight happens before authentication, browser creation, and navigation.
   const prepared = await prepareSavedAutomation(store, options);
+  return executePreparedCommand(options, store, prepared, workingDirectory);
+}
+
+async function resumeCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseResumeCliArgs(args, workingDirectory);
+  if (parsed.help) {
+    process.stdout.write(RESUME_CLI_HELP);
+    return 0;
+  }
+  const options = parsed.options;
+  const store = openFileRepository({
+    dataRoot: options.dataDirectory,
+    libraryRoot: workingDirectory,
+  });
+  const prepared = await prepareSavedResume(store, options.jobDirectory);
+  return executePreparedCommand(
+    {
+      ...options,
+      automationId: prepared.automation.id,
+      siteId: prepared.automation.siteId,
+      inputs: prepared.input,
+    },
+    store,
+    prepared,
+    workingDirectory,
+    true,
+  );
+}
+
+async function jobsCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseJobsCliArgs(args, workingDirectory);
+  if (parsed.help) {
+    process.stdout.write(JOBS_CLI_HELP);
+    return 0;
+  }
+  const { operation, jobDirectory, json } = parsed.options;
+  const { DurableJob, inspectJob } = await import("./jobs/store.js");
+  if (operation === "export") DurableJob.exportExisting(jobDirectory);
+  const inspection = inspectJob(jobDirectory);
+  process.stdout.write(
+    json
+      ? JSON.stringify(inspection, null, 2) + "\n"
+      : formatJobProgress(inspection.summary) +
+          (operation === "export"
+            ? "Exported fresh committed snapshots.\n"
+            : "Snapshots may predate the latest commits; refresh with mosaik jobs export.\n") +
+          `Resume: ${savedJobResumeCommand(jobDirectory)}\n`,
+  );
+  return 0;
+}
+
+function formatJobProgress(job: JobSummary): string {
+  return (
+    `Job: ${job.directory}\nStatus: ${job.status}\nCollected: ${job.collected}${job.requestedCount === undefined ? "" : ` / ${job.requestedCount} requested`}\nPending: ${job.pending}\nFailed items: ${job.failed}\nFailed pages: ${job.failedPages}\nTermination: ${job.termination ?? "running"}\nSource exhausted: ${job.sourceExhausted}\nRepairs: ${job.repairs}\nResults: ${job.outputPath}\nFailures: ${job.failuresPath}\nJournal: ${job.databasePath}\n` +
+    (job.reason ? `Reason: ${job.reason}\n` : "")
+  );
+}
+
+async function executePreparedCommand(
+  options: ExecuteCliOptions,
+  store: MosaikStore,
+  prepared: PreparedSavedAutomation,
+  workingDirectory: string,
+  resume = false,
+): Promise<number> {
   const runDirectory = resolve(options.dataDirectory, "runs", randomUUID());
   const outputDirectory = options.outputDirectory ?? join(runDirectory, "output");
   const reporter = new TaskReporter({ enabled: !options.json });
   reporter.note(`Saved automation: ${prepared.sourcePath}`);
   reporter.note(`Run: ${runDirectory}`);
   reporter.note(`Output: ${outputDirectory}`);
+  const jobDirectory =
+    options.jobDirectory ??
+    (/\bctx\.batch\b/.test(prepared.automation.source) ? join(outputDirectory, "job") : undefined);
+  if (jobDirectory) {
+    reporter.note(`Job: ${jobDirectory}`);
+    reporter.note(`Resume: ${savedJobResumeCommand(jobDirectory, options)}`);
+  }
   const cancellation = new AbortController();
   const cancel = () => cancellation.abort("Execution interrupted");
   process.on("SIGINT", cancel);
@@ -848,16 +938,27 @@ async function executeCommand(args: string[], workingDirectory: string): Promise
       outputDirectory,
       signal: cancellation.signal,
       humanize: opened.humanize,
+      ...(options.jobDirectory === undefined
+        ? {}
+        : { job: { directory: options.jobDirectory, resume } }),
     });
-    const status = cancellation.signal.aborted
-      ? "interrupted"
-      : execution.success
-        ? "executed"
-        : "failed";
+    const task =
+      execution.task ??
+      assessTask(execution.value, undefined, prepared.input, {
+        success: execution.success,
+        interrupted: cancellation.signal.aborted,
+        ...(execution.error === undefined ? {} : { error: execution.error }),
+        outputPaths: (execution.files ?? []).map((file) => file.path),
+      });
+    const resumeCommand =
+      execution.job === undefined
+        ? undefined
+        : savedJobResumeCommand(execution.job.directory, options);
     const report = {
-      status,
+      status: task.status,
       execution,
-      taskCompletion: "unverified",
+      task,
+      ...(resumeCommand === undefined ? {} : { resumeCommand }),
       automation: {
         id: prepared.automation.id,
         siteId: prepared.automation.siteId,
@@ -871,17 +972,21 @@ async function executeCommand(args: string[], workingDirectory: string): Promise
         modelRequests: 0,
         inputTokens: 0,
         outputTokens: 0,
+        repairs: execution.job?.repairs ?? execution.repairCoordination?.repairsCommitted ?? 0,
       },
     };
     const reportPath = await persistSavedExecutionReport(runDirectory, report);
     process.stdout.write(
       options.json
         ? JSON.stringify({ ...report, reportPath }, null, 2) + "\n"
-        : `Execution ${status}; task completion unverified\nAutomation: ${prepared.sourcePath}\nInputs: ${JSON.stringify(prepared.input)}\nOutput: ${outputDirectory}\nReport: ${reportPath}\n` +
+        : `Execution: ${execution.success ? "succeeded" : "failed"}\nTask: ${task.status} (${task.verification})\nCollected: ${task.collected}\nFailed items: ${task.failedItems}\nTermination: ${task.terminationReason}\nAutomation: ${prepared.sourcePath}\nInputs: ${JSON.stringify(prepared.input)}\nOutput: ${outputDirectory}\nReport: ${reportPath}\n` +
             (execution.error ? `Error: ${execution.error}\n` : "") +
+            task.errors.map((error) => `Check: ${error}\n`).join("") +
+            (execution.job ? formatJobProgress(execution.job) : "") +
+            (resumeCommand ? `Resume: ${resumeCommand}\n` : "") +
             (execution.files ?? []).map((file) => `Wrote: ${file.path}\n`).join(""),
     );
-    return cancellation.signal.aborted ? 130 : execution.success ? 0 : 1;
+    return savedExecutionExitCode(task);
   } finally {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);

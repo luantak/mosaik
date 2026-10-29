@@ -1,3 +1,4 @@
+import { isDurableAutomation } from "../../jobs/prepare.js";
 import {
   canCompleteFromDiscovery,
   discoveryHasPerformedMutations,
@@ -64,7 +65,10 @@ const PERSONA = `      Return each extracted value once. Avoid copying the same 
 
       Use exact argument names and connect structured outputs to later object inputs. prepareComposition returns observedInputs containing actual values used in discovery. Preserve those representations in this task's automation: do not replace an observed code or hexadecimal value with its natural-language label. These examples belong to this invocation, not defaults in reusable actions. Every action takes one object containing its named inputs: a contract with inputs { item: object } is called as action({ item }), never action(item). Keep selection, filters, thresholds, branches, and loops in TypeScript. A threshold task must first use .filter(...) with an explicit comparison to an input field, then loop over the filtered array. Use input fields for caller values and distinct result variables. Import actions with named imports from ../actions/<actionName>.js. You may also default-import another automation from ./<automationId>.js. ctx.actions.<name> remains allowed. Return finishComposition's exact result.
 
-      For paginated individual-page tasks, first collect all requested item references across listing pages. Only after that listing loop finishes, iterate over the collected references to open individual pages and extract/download their data. Item navigation leaves the listing: never call a listing pagination action from a detail page or treat that failure as catalog exhaustion.
+      For read-only collection tasks, call prepareComposition with durable:true and use ctx.batch.run for durable pagination and per-item extraction. Do not accumulate all records or item references in worker memory. Persist stable IDs and small navigation inputs at each page boundary. Each list(cursor) and extract(item) callback MUST start with a reusable absolute-URL navigation action so it works in a fresh browser after a process crash. The runtime's initial startUrl navigation does not replace these callback navigations: learn/reuse an open-page action even when the first cursor equals startUrl. list must return {items:[{id:string,input:{href:observedUrl,...}}],nextCursor:observedNextUrlOrNull,exhausted:boolean}; use an observed end-of-source condition, not an empty array assumption. extract receives each item's saved input and returns one record. A listing-only extraction may persist the observed small record in item input and still navigate deterministically before extracting that item. Keep IDs independent of pagination offsets. Deduplication, retries, committed results and restart cursors belong to the host, not arrays in the automation. Return the batch summary directly; do not write a second result array with ctx.files.write.
+      Example (adapt exact action schemas and required fields):
+      return ctx.batch.run({key:"records",initialCursor:requestStartUrl,acceptance:{requiredFields:["id","title","sourceUrl"],idField:"id",sourceUrlField:"sourceUrl",requestedCount:input.requestedCount},list:async(cursor)=>{await openPage(ctx,{url:cursor});const page=await listItems(ctx,{});return {items:page.items.map(item=>({id:item.id,input:{href:item.href}})),nextCursor:page.next[0]?.href??null,exhausted:page.endOfSource};},extract:async(item)=>{await openPage(ctx,{url:item.href});return await extractRecord(ctx,{});}});
+      Use the concrete known start URL string in initialCursor; requestStartUrl is only an example placeholder, not an injected variable. Declare requestedCount only when supplied; otherwise requireExhaustion:true. A requested count reached and source exhaustion are different outcomes. Extraction accepts only read-only/browser-local actions; external mutations and uncertain outcomes cannot be replayed. Each record must satisfy required fields, unique IDs, and an absolute source URL before commit. The batch runtime returns output paths and complete/incomplete/interrupted counts, not all records. A missing record or exhausted source before requestedCount is incomplete. For non-batch tasks finishComposition may receive an explicit acceptance contract {recordsPath,terminationPath,requiredFields,idField,sourceUrlField,requestedCount:{input:"requestedCount"}}; when insufficient, the optional semantic model reviewer remains responsible.
 
       Pagination loops must terminate both when the requested count is reached and when the site has no next page. After collecting the current page, wrap only the optional next-page action in try/catch and break when it is unavailable. If the site ends early, preserve the records that were collected and report requestedCount, collectedCount, and exhausted in the returned and written result instead of failing or looping forever.
 
@@ -76,7 +80,7 @@ const PERSONA = `      Return each extracted value once. Avoid copying the same 
 
       Define the requested outcome before writing source. Return enough evidence to verify every requirement, including observed source URLs for research questions. Preserve collected candidates and selection diagnostics when filtering finds nothing, so recovery can distinguish empty extraction from an overly narrow filter. Never equate an empty evidence collection with having answered a question. The host reviews execution results and synthesizes the final answer.
 
-      For scrape, export, or save tasks, persist final data with await ctx.files.write("result.json", data). File paths are relative to the current run's output directory. Never claim a file was written unless files.write succeeds.
+      For non-batch scrape, export, or save tasks, persist final data with await ctx.files.write("result.json", data). File paths are relative to the current run's output directory. Never claim a file was written unless files.write succeeds.
 
       File transfer from an extracted URL is runtime work, not a reusable browser action. Do not discover a download action or navigate to the image URL. Keep only collect, open-item, extract, and pagination as browser capabilities.
 
@@ -338,6 +342,7 @@ export class DshCapabilityCompositionAgent implements CapabilityCompositionAgent
       learnedThisRun &&
       canCompleteFromDiscovery(automation.source, after, discoveryEvidence?.discoveryObservations);
     const useDiscoveryEvidence =
+      !isDurableAutomation(automation) &&
       eligibleDiscoveryEvidence &&
       discoveryEvidence !== undefined &&
       (isBrowserSession(this.browser)
@@ -392,7 +397,8 @@ export class DshCapabilityCompositionAgent implements CapabilityCompositionAgent
             });
           },
           onActionResult: (event) => {
-            actionResults.push({ name: event.name, result: event.result });
+            if (!isDurableAutomation(automation) || actionResults.length < 20)
+              actionResults.push({ name: event.name, result: event.result });
             options.onProgress?.({
               kind: "tool-result",
               message: event.name,
