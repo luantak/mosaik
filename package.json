@@ -44,6 +44,7 @@
     "fmt:check": "oxfmt --check",
     "kernel:assets": "node scripts/build-kernel-assets.mjs --check",
     "kernel:assets:check": "node scripts/build-kernel-assets.mjs --check",
+    "package:check": "node scripts/check-package.mjs",
     "auth:fixture": "tsx src/auth/multistep-fixture-cli.ts",
     "test": "node scripts/with-kernel-assets.mjs vitest run",
     "prepack": "pnpm run build"

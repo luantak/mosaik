@@ -40,6 +40,10 @@ import {
 } from "./cli-tui.js";
 import {
   ACTIONS_CLI_HELP,
+  AUTOMATIONS_CLI_HELP,
+  EXECUTE_CLI_HELP,
+  parseAutomationsCliArgs,
+  parseExecuteCliArgs,
   CONFIG_CLI_HELP,
   DOCTOR_CLI_HELP,
   INIT_CLI_HELP,
@@ -85,7 +89,15 @@ import {
   saveDefaultModel,
   saveHumanizationDefault,
 } from "./config.js";
-import { composeAndRun } from "./composition/index.js";
+import { composeAndRun, inferTaskInputs } from "./composition/index.js";
+import {
+  executeSavedAutomation,
+  inspectSavedAutomation,
+  prepareSavedAutomation,
+  savedAutomationRerunCommand,
+  persistSavedExecutionReport,
+} from "./saved-execution.js";
+import { automationSourcePath } from "./library/paths.js";
 import { initializeMosaikProject } from "./init.js";
 import {
   authAutomationFilePath,
@@ -111,6 +123,8 @@ const require = createRequire(import.meta.url);
 const COMMANDS = [
   "init",
   "run",
+  "execute",
+  "automations",
   "login",
   "provider",
   "actions",
@@ -137,6 +151,10 @@ export async function main(args: string[], workingDirectory = process.cwd()): Pr
       return 0;
     case "run":
       return runCommand(rest, workingDirectory);
+    case "execute":
+      return executeCommand(rest, workingDirectory);
+    case "automations":
+      return automationsCommand(rest, workingDirectory);
     case "init":
       return initCommand(rest, workingDirectory);
     case "login":
@@ -311,7 +329,13 @@ async function openInteractiveCliSession(
         runDirectory: promptDirectory,
         outputDirectory,
       });
-      return interactiveTaskResult(result);
+      return interactiveTaskResult(result, {
+        siteId: current.host,
+        startUrl: current.href,
+        inputs: inferTaskInputs(task),
+        dataDirectory,
+        workingDirectory,
+      });
     },
     async login(): Promise<InteractiveCliResult> {
       const loginUrl = browserSession.currentUrl();
@@ -348,6 +372,13 @@ async function openInteractiveCliSession(
 
 function interactiveTaskResult(
   result: Awaited<ReturnType<typeof composeAndRun>>,
+  invocation: {
+    siteId: string;
+    startUrl: string;
+    inputs: Record<string, unknown>;
+    dataDirectory: string;
+    workingDirectory: string;
+  },
 ): InteractiveCliResult {
   const duration = formatDuration(result.metrics.timings?.totalMs ?? result.metrics.durationMs);
   if (result.status !== "completed") {
@@ -366,6 +397,13 @@ function interactiveTaskResult(
   const summary = result.answer ?? formatExecutionValue(result.execution?.value);
   const details = [
     result.automation?.id === undefined ? undefined : `Automation: ${result.automation.id}`,
+    result.automation === undefined
+      ? undefined
+      : `Source: ${automationSourcePath(invocation.workingDirectory, invocation.siteId, result.automation.id)}`,
+    result.automation === undefined ? undefined : `Inputs: ${JSON.stringify(invocation.inputs)}`,
+    result.automation === undefined
+      ? undefined
+      : `Rerun: ${savedAutomationRerunCommand({ ...invocation, automationId: result.automation.id })}`,
     result.reusedActions.length === 0 ? undefined : `Actions: ${result.reusedActions.join(", ")}`,
     summary,
     ...(result.execution?.files ?? []).map((file) => `Wrote: ${file.path}`),
@@ -385,8 +423,11 @@ async function initCommand(args: string[], workingDirectory: string): Promise<nu
   const result = await initializeMosaikProject({
     directory: parsed.options.directory,
     name: parsed.options.name,
-    mosaikPackageRoot: resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+    ...(parsed.options.mosaikPath === undefined
+      ? {}
+      : { mosaikPackageRoot: parsed.options.mosaikPath }),
     force: parsed.options.force,
+    install: parsed.options.install,
   });
   process.stdout.write(
     [
@@ -396,11 +437,13 @@ async function initCommand(args: string[], workingDirectory: string): Promise<nu
       "Created:",
       ...result.created.map((path) => `  ${path}`),
       "",
-      `Linked mosaik from ${result.mosaikPath}`,
+      `Mosaik dependency: ${result.mosaikDependency}`,
       "",
       "Next:",
-      "  mosaik setup",
-      '  mosaik run "Search for ceramic mugs" --url https://example.com --input query=mug',
+      `  cd ${JSON.stringify(result.directory)}`,
+      ...(parsed.options.install ? [] : ["  pnpm install"]),
+      "  pnpm exec mosaik setup",
+      '  pnpm exec mosaik run "Search for ceramic mugs" --url https://example.com --input query=mug',
       "",
     ].join("\n"),
   );
@@ -500,13 +543,22 @@ async function providerCommand(args: string[], workingDirectory: string): Promis
   return 0;
 }
 
-async function runCommand(args: string[], workingDirectory: string): Promise<number> {
-  const parsed = parseRunCliArgs(args, workingDirectory);
-  if (parsed.help) {
-    process.stdout.write(RUN_CLI_HELP);
-    return 0;
-  }
-  const options = parsed.options;
+async function openCliRunBrowser(
+  options: Pick<
+    RunCliOptions,
+    | "dataDirectory"
+    | "startUrl"
+    | "browser"
+    | "humanize"
+    | "headless"
+    | "kernelAuthConnection"
+    | "kernelProfile"
+    | "kernelStealth"
+    | "kernelTimeoutSeconds"
+  >,
+  workingDirectory: string,
+  reporter: TaskReporter,
+) {
   const config = await loadMosaikConfig(options.dataDirectory);
   const browserProvider = resolveMosaikBrowser(options.browser, config);
   const humanize = resolveHumanization(options.humanize, config);
@@ -523,7 +575,6 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
     dataRoot: options.dataDirectory,
     libraryRoot: workingDirectory,
   });
-  const reporter = new TaskReporter({ enabled: !options.json });
   await loadProjectEnv(workingDirectory);
   const kernel = browserProvider === "kernel" ? new Kernel() : undefined;
   let resolvedProfile = options.kernelProfile;
@@ -599,6 +650,23 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
     if (browserProvider !== "kernel" && savedLocalAuthentication !== undefined) {
       await applySavedAuthentication(browser as InteractiveBrowserSession, store, options.startUrl);
     }
+    return { browser, store, humanize };
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+}
+
+async function runCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseRunCliArgs(args, workingDirectory);
+  if (parsed.help) {
+    process.stdout.write(RUN_CLI_HELP);
+    return 0;
+  }
+  const options = parsed.options;
+  const reporter = new TaskReporter({ enabled: !options.json });
+  const { browser, store } = await openCliRunBrowser(options, workingDirectory, reporter);
+  try {
     const agent = new DshCapabilityCompositionAgent(
       browser,
       store,
@@ -623,9 +691,33 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
         }),
     );
     if (options.json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            ...result,
+            ...(result.automation === undefined
+              ? {}
+              : {
+                  savedAutomation: {
+                    sourcePath: automationSourcePath(
+                      workingDirectory,
+                      options.siteId,
+                      result.automation.id,
+                    ),
+                    inputs: options.inputs,
+                    rerunCommand: savedAutomationRerunCommand({
+                      ...options,
+                      automationId: result.automation.id,
+                    }),
+                  },
+                }),
+          },
+          null,
+          2,
+        )}\n`,
+      );
     } else {
-      printRunResult(result, options);
+      printRunResult(result, options, workingDirectory);
     }
     return result.status === "completed" ? 0 : 1;
   } finally {
@@ -636,6 +728,7 @@ async function runCommand(args: string[], workingDirectory: string): Promise<num
 function printRunResult(
   result: Awaited<ReturnType<typeof composeAndRun>>,
   options: RunCliOptions,
+  workingDirectory: string,
 ): void {
   const theme = createTheme();
   const runLine =
@@ -655,6 +748,9 @@ function printRunResult(
   process.stdout.write(
     `${theme.success("✓")} ${theme.bold("Task completed")} ${theme.dim(duration)}\n` +
       `  ${theme.dim("Automation")}  ${automationId}\n` +
+      `  ${theme.dim("Source")}      ${automationSourcePath(workingDirectory, options.siteId, automationId)}\n` +
+      `  ${theme.dim("Inputs")}      ${JSON.stringify(options.inputs)}\n` +
+      `  ${theme.dim("Rerun")}       ${savedAutomationRerunCommand({ ...options, automationId })}\n` +
       (result.reusedActions.length === 0
         ? ""
         : `  ${theme.dim("Actions")}  ${result.reusedActions.join(", ")}\n`) +
@@ -667,6 +763,130 @@ function printRunResult(
         .join("") +
       runLine,
   );
+}
+
+async function automationsCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseAutomationsCliArgs(args, workingDirectory);
+  if (parsed.help) {
+    process.stdout.write(AUTOMATIONS_CLI_HELP);
+    return 0;
+  }
+  const options = parsed.options;
+  const store = openFileRepository({
+    dataRoot: options.dataDirectory,
+    libraryRoot: workingDirectory,
+  });
+  if (options.operation === "inspect") {
+    const automation = await inspectSavedAutomation(store, options.siteId!, options.automationId!);
+    process.stdout.write(
+      options.json
+        ? JSON.stringify(automation, null, 2) + "\n"
+        : `${automation.siteId} / ${automation.id} (version ${automation.version})\nSource: ${automation.sourcePath}\nStart URL: ${automation.startUrl ?? "supply --url"}\nInputs: ${JSON.stringify(automation.inputs, null, 2)}\nDependencies: ${JSON.stringify(automation.dependencies ?? [])}\n\n${automation.source}\n`,
+    );
+    return 0;
+  }
+  const sites =
+    options.siteId === undefined ? await store.siteActions.listSites() : [options.siteId];
+  const automations = [];
+  for (const siteId of sites) {
+    for (const id of await store.listAutomationIds(siteId)) {
+      const automation = await inspectSavedAutomation(store, siteId, id);
+      const { source: _source, ...summary } = automation;
+      automations.push(summary);
+    }
+  }
+  process.stdout.write(
+    options.json
+      ? JSON.stringify(automations, null, 2) + "\n"
+      : automations.length === 0
+        ? "No saved automations. Learn one with mosaik run.\n"
+        : automations
+            .map(
+              (entry) =>
+                `${entry.siteId}  ${entry.id}  ${JSON.stringify(entry.inputs)}\n  ${entry.sourcePath}`,
+            )
+            .join("\n") + "\n",
+  );
+  return 0;
+}
+
+async function executeCommand(args: string[], workingDirectory: string): Promise<number> {
+  const parsed = parseExecuteCliArgs(args, workingDirectory);
+  if (parsed.help) {
+    process.stdout.write(EXECUTE_CLI_HELP);
+    return 0;
+  }
+  const options = parsed.options;
+  const store = openFileRepository({
+    dataRoot: options.dataDirectory,
+    libraryRoot: workingDirectory,
+  });
+  // This preflight happens before authentication, browser creation, and navigation.
+  const prepared = await prepareSavedAutomation(store, options);
+  const runDirectory = resolve(options.dataDirectory, "runs", randomUUID());
+  const outputDirectory = options.outputDirectory ?? join(runDirectory, "output");
+  const reporter = new TaskReporter({ enabled: !options.json });
+  reporter.note(`Saved automation: ${prepared.sourcePath}`);
+  reporter.note(`Run: ${runDirectory}`);
+  reporter.note(`Output: ${outputDirectory}`);
+  const cancellation = new AbortController();
+  const cancel = () => cancellation.abort("Execution interrupted");
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  const started = performance.now();
+  let browser: Browser | BrowserSession | undefined;
+  try {
+    const opened = await openCliRunBrowser(
+      { ...options, startUrl: prepared.startUrl },
+      workingDirectory,
+      reporter,
+    );
+    browser = opened.browser;
+    const execution = await executeSavedAutomation(browser, store, prepared, {
+      timeoutMs: options.timeoutMs,
+      maxActionCalls: options.maxActionCalls,
+      outputDirectory,
+      signal: cancellation.signal,
+      humanize: opened.humanize,
+    });
+    const status = cancellation.signal.aborted
+      ? "interrupted"
+      : execution.success
+        ? "executed"
+        : "failed";
+    const report = {
+      status,
+      execution,
+      taskCompletion: "unverified",
+      automation: {
+        id: prepared.automation.id,
+        siteId: prepared.automation.siteId,
+        sourcePath: prepared.sourcePath,
+      },
+      inputs: prepared.input,
+      runDirectory,
+      outputDirectory,
+      metrics: {
+        durationMs: Math.round(performance.now() - started),
+        modelRequests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      },
+    };
+    const reportPath = await persistSavedExecutionReport(runDirectory, report);
+    process.stdout.write(
+      options.json
+        ? JSON.stringify({ ...report, reportPath }, null, 2) + "\n"
+        : `Execution ${status}; task completion unverified\nAutomation: ${prepared.sourcePath}\nInputs: ${JSON.stringify(prepared.input)}\nOutput: ${outputDirectory}\nReport: ${reportPath}\n` +
+            (execution.error ? `Error: ${execution.error}\n` : "") +
+            (execution.files ?? []).map((file) => `Wrote: ${file.path}\n`).join(""),
+    );
+    return cancellation.signal.aborted ? 130 : execution.success ? 0 : 1;
+  } finally {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+    await browser?.close();
+  }
 }
 
 async function actionsCommand(args: string[], workingDirectory: string): Promise<number> {

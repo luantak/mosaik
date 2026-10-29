@@ -14,6 +14,9 @@ export interface ComposedAutomation {
   siteId: string;
   source: string;
   version: number;
+  /** Public parameters, validated before opening a browser for saved execution. */
+  inputs?: ActionSchema;
+  startUrl?: string;
   actionIds?: string[];
   dependencies?: AutomationDependency[];
 }

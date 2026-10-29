@@ -1,11 +1,13 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 export interface InitProjectOptions {
   directory: string;
   name: string;
-  mosaikPackageRoot: string;
+  /** Explicit contributor mode. By default, pin the currently running package version. */
+  mosaikPackageRoot?: string;
   force?: boolean;
   install?: boolean;
 }
@@ -13,7 +15,8 @@ export interface InitProjectOptions {
 export interface InitProjectResult {
   directory: string;
   packageName: string;
-  mosaikPath: string;
+  mosaikPath?: string;
+  mosaikDependency: string;
   created: string[];
 }
 
@@ -22,11 +25,16 @@ export async function initializeMosaikProject(
 ): Promise<InitProjectResult> {
   const directory = resolve(options.directory);
   const packageName = normalizePackageName(options.name);
-  const mosaikPath = resolve(options.mosaikPackageRoot);
+  const mosaikPath =
+    options.mosaikPackageRoot === undefined ? undefined : resolve(options.mosaikPackageRoot);
   const force = options.force === true;
   const shouldInstall = options.install !== false;
 
-  await assertMosaikPackage(mosaikPath);
+  const installedPackage = await readMosaikPackage(
+    mosaikPath ?? resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+  );
+  const mosaikDependency =
+    mosaikPath === undefined ? installedPackage.version : `link:${mosaikPath}`;
   await mkdir(directory, { recursive: true });
 
   const files: Array<{ relativePath: string; contents: string }> = [
@@ -41,7 +49,7 @@ export async function initializeMosaikProject(
             check: "tsc --noEmit",
           },
           dependencies: {
-            mosaik: `link:${mosaikPath}`,
+            mosaik: mosaikDependency,
           },
           devDependencies: {
             "@types/node": "24.3.0",
@@ -52,6 +60,23 @@ export async function initializeMosaikProject(
         null,
         2,
       )}\n`,
+    },
+    {
+      relativePath: "pnpm-workspace.yaml",
+      contents: [
+        "packages:",
+        '  - "."',
+        "",
+        "# Native runtime dependencies used by Mosaik and its agent runtime.",
+        "allowBuilds:",
+        '  "@deepseek-ai/dsh-subprocess-local": true',
+        '  "@google/genai": true',
+        "  better-sqlite3: false",
+        "  koffi: true",
+        "  node-pty: true",
+        "  protobufjs: true",
+        "",
+      ].join("\n"),
     },
     {
       relativePath: "tsconfig.json",
@@ -84,14 +109,20 @@ export async function initializeMosaikProject(
     },
   ];
 
+  // Check the whole scaffold before writing anything. An existing later file must
+  // not leave an earlier package.json changed when init refuses the operation.
+  if (!force) {
+    for (const file of files) {
+      if (await exists(resolve(directory, file.relativePath))) {
+        throw new Error(
+          `${file.relativePath} already exists in ${directory}. Pass --force to overwrite.`,
+        );
+      }
+    }
+  }
   const created: string[] = [];
   for (const file of files) {
     const path = resolve(directory, file.relativePath);
-    if (!force && (await exists(path))) {
-      throw new Error(
-        `${file.relativePath} already exists in ${directory}. Pass --force to overwrite.`,
-      );
-    }
     await mkdir(resolve(path, ".."), { recursive: true });
     await writeFile(path, file.contents, "utf8");
     created.push(file.relativePath);
@@ -104,7 +135,13 @@ export async function initializeMosaikProject(
     }
   }
 
-  return { directory, packageName, mosaikPath, created };
+  return {
+    directory,
+    packageName,
+    mosaikDependency,
+    ...(mosaikPath === undefined ? {} : { mosaikPath }),
+    created,
+  };
 }
 
 export function normalizePackageName(value: string): string {
@@ -133,7 +170,7 @@ export function defaultPackageName(directory: string): string {
   }
 }
 
-async function assertMosaikPackage(path: string): Promise<void> {
+async function readMosaikPackage(path: string): Promise<{ version: string }> {
   const packageJsonPath = resolve(path, "package.json");
   if (!(await exists(packageJsonPath))) {
     throw new Error(`Mosaik package not found at ${path}`);
@@ -147,6 +184,11 @@ async function assertMosaikPackage(path: string): Promise<void> {
   ) {
     throw new Error(`Expected a mosaik package.json at ${packageJsonPath}`);
   }
+  const version = (raw as { version?: unknown }).version;
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(version)) {
+    throw new Error(`Expected a valid Mosaik package version at ${packageJsonPath}`);
+  }
+  return { version };
 }
 
 async function exists(path: string): Promise<boolean> {

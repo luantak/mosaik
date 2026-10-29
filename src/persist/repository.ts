@@ -223,6 +223,8 @@ export function openFileRepository(root: string | RepositoryRoots): MosaikStore 
         id: automation.id,
         siteId,
         version: automation.version,
+        ...(automation.inputs === undefined ? {} : { inputs: automation.inputs }),
+        ...(automation.startUrl === undefined ? {} : { startUrl: automation.startUrl }),
         ...(automation.actionIds === undefined ? {} : { actionIds: automation.actionIds }),
         ...(automation.dependencies === undefined ? {} : { dependencies: automation.dependencies }),
       });
@@ -231,10 +233,14 @@ export function openFileRepository(root: string | RepositoryRoots): MosaikStore 
     async getAutomation(siteId, id) {
       const normalizedSiteId = normalizeSiteId(siteId);
       const raw = await readJson(automationMetaPath(dataRoot, normalizedSiteId, id));
-      if (raw === undefined) return undefined;
       const sourceFromFile = await readText(
         automationSourcePath(libraryRoot, normalizedSiteId, id),
       );
+      if (raw === undefined) {
+        return sourceFromFile === undefined
+          ? undefined
+          : { id, siteId: normalizedSiteId, version: 1, source: sourceFromFile };
+      }
       const source =
         sourceFromFile ??
         (typeof raw.source === "string" && raw.source.length > 0 ? raw.source : undefined);
@@ -366,6 +372,8 @@ function asAutomation(raw: Record<string, unknown>): ComposedAutomation {
     siteId: asString(raw.siteId, "siteId"),
     source: asString(raw.source, "source"),
     version: asNumber(raw.version, "version"),
+    ...(raw.inputs === undefined ? {} : { inputs: asSchema(raw.inputs) }),
+    ...(raw.startUrl === undefined ? {} : { startUrl: asString(raw.startUrl, "startUrl") }),
     ...(actionIds === undefined ? {} : { actionIds }),
     ...(dependencies === undefined ? {} : { dependencies }),
   };

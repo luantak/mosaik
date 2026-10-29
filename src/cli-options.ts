@@ -172,6 +172,9 @@ export function parseRunCliArgs(
     if (separator < 1) throw new Error(`--input must use key=value: ${assignment}`);
     const key = assignment.slice(0, separator).trim();
     if (key.length === 0) throw new Error(`--input has an empty key: ${assignment}`);
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      throw new Error(`Unsafe input key: ${key}`);
+    }
     inputs[key] = parseInputValue(assignment.slice(separator + 1));
   }
   return {
@@ -204,6 +207,186 @@ export function parseRunCliArgs(
         : { automationId: parsed.values["automation-id"] }),
     },
   };
+}
+
+export interface ExecuteCliOptions extends Omit<
+  RunCliOptions,
+  "task" | "startUrl" | "model" | "automationId"
+> {
+  automationId: string;
+  startUrl?: string;
+  timeoutMs: number;
+  maxActionCalls: number;
+  outputDirectory?: string;
+}
+
+export const EXECUTE_CLI_HELP = `Execute a saved automation with new inputs, without composition or model calls.
+
+Usage:
+  mosaik execute <id> --site <site-id> [options]
+
+Options:
+      --site <site-id>          Site containing the saved automation (required)
+  -i, --input <key=value>       Typed input value, repeatable
+      --input-json <object>     Input values as a JSON object
+  -u, --url <url>               Override the saved starting URL
+      --data-dir <directory>    Mosaik data directory, default .mosaik
+      --output-dir <directory>  Output directory, default .mosaik/runs/<id>/output
+      --timeout <ms>            Runtime timeout, default 180000
+      --max-action-calls <n>    Runtime action limit, default 1000
+      --browser <provider>      local, camoufox, or kernel
+      --kernel-profile <name>   Kernel profile name to load and save
+      --kernel-auth-connection <id>  Authenticated Kernel connection to load
+      --kernel-stealth          Enable Kernel stealth mode
+      --kernel-timeout <secs>   Kernel inactivity timeout, default 300
+      --headless                Hide the browser window
+      --humanize                Use human-like interactions
+      --no-humanize             Disable configured humanization
+      --json                    Print the full execution report as JSON
+  -h, --help                    Show this help
+
+Execution success is separate from task completion. External side effects are refused.
+`;
+
+export function parseExecuteCliArgs(
+  args: string[],
+  workingDirectory = process.cwd(),
+): { help: true } | { help: false; options: ExecuteCliOptions } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      site: { type: "string" },
+      url: { type: "string", short: "u" },
+      input: { type: "string", short: "i", multiple: true },
+      "input-json": { type: "string" },
+      "data-dir": { type: "string" },
+      "output-dir": { type: "string" },
+      timeout: { type: "string", default: "180000" },
+      "max-action-calls": { type: "string", default: "1000" },
+      browser: { type: "string" },
+      "kernel-profile": { type: "string" },
+      "kernel-auth-connection": { type: "string" },
+      "kernel-stealth": { type: "boolean", default: false },
+      "kernel-timeout": { type: "string", default: "300" },
+      headless: { type: "boolean", default: false },
+      humanize: { type: "boolean" },
+      "no-humanize": { type: "boolean" },
+      json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (parsed.values.help) return { help: true };
+  if (parsed.positionals.length !== 1 || !parsed.positionals[0]?.trim())
+    throw new Error("Pass one saved automation ID");
+  if (!parsed.values.site?.trim()) throw new Error("--site is required");
+  const common = [
+    "saved execution",
+    "--url",
+    parsed.values.url ?? "https://unused.invalid",
+    "--site",
+    parsed.values.site,
+  ];
+  for (const [key, value] of Object.entries(parsed.values)) {
+    if (
+      ["site", "url", "timeout", "max-action-calls", "output-dir", "help"].includes(key) ||
+      value === undefined ||
+      value === false
+    )
+      continue;
+    if (value === true) common.push(`--${key}`);
+    else if (Array.isArray(value)) for (const item of value) common.push(`--${key}`, item);
+    else common.push(`--${key}`, value);
+  }
+  const base = parseRunCliArgs(common, workingDirectory);
+  if (base.help) throw new Error("Unexpected execution help");
+  const {
+    task: _task,
+    startUrl: _startUrl,
+    model: _model,
+    automationId: _id,
+    ...shared
+  } = base.options;
+  const timeoutMs = positiveInteger(parsed.values.timeout, "--timeout");
+  const maxActionCalls = positiveInteger(parsed.values["max-action-calls"], "--max-action-calls");
+  return {
+    help: false,
+    options: {
+      ...shared,
+      automationId: parsed.positionals[0],
+      timeoutMs,
+      maxActionCalls,
+      ...(parsed.values.url === undefined ? {} : { startUrl: _startUrl }),
+      ...(parsed.values["output-dir"] === undefined
+        ? {}
+        : { outputDirectory: resolve(workingDirectory, parsed.values["output-dir"]) }),
+    },
+  };
+}
+
+export const AUTOMATIONS_CLI_HELP = `List or inspect saved executable automations.
+
+Usage:
+  mosaik automations list [--site <site-id>] [--json]
+  mosaik automations inspect <id> --site <site-id> [--json]
+
+Options:
+      --data-dir <directory>    Mosaik data directory, default .mosaik
+  -h, --help                    Show this help
+`;
+
+export function parseAutomationsCliArgs(
+  args: string[],
+  workingDirectory = process.cwd(),
+):
+  | { help: true }
+  | {
+      help: false;
+      options: {
+        operation: "list" | "inspect";
+        automationId?: string;
+        siteId?: string;
+        dataDirectory: string;
+        json: boolean;
+      };
+    } {
+  const parsed = parseArgs({
+    args,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      site: { type: "string" },
+      "data-dir": { type: "string" },
+      json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+  if (parsed.values.help) return { help: true };
+  const [operation, automationId, ...extra] = parsed.positionals;
+  if (operation !== "list" && operation !== "inspect")
+    throw new Error("Usage: mosaik automations list|inspect");
+  if (extra.length || (operation === "list" && automationId))
+    throw new Error("Unexpected automation argument");
+  if (operation === "inspect" && (!automationId || !parsed.values.site?.trim()))
+    throw new Error("inspect requires an automation ID and --site");
+  return {
+    help: false,
+    options: {
+      operation,
+      json: parsed.values.json,
+      dataDirectory: resolve(workingDirectory, parsed.values["data-dir"] ?? ".mosaik"),
+      ...(parsed.values.site === undefined ? {} : { siteId: parsed.values.site }),
+      ...(automationId === undefined ? {} : { automationId }),
+    },
+  };
+}
+
+function positiveInteger(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    throw new Error(`${flag} must be a positive integer`);
+  return parsed;
 }
 
 export type ConfigCliOptions =
@@ -361,24 +544,29 @@ export interface InitCliOptions {
   directory: string;
   name: string;
   force: boolean;
+  mosaikPath?: string;
+  install: boolean;
 }
 
 export type InitCliParseResult = { help: true } | { help: false; options: InitCliOptions };
 
 export const INIT_CLI_HELP = `Create a pnpm TypeScript project that can import mosaik/actions and
-mosaik/automations with full type resolution.
+mosaik/automations with full type resolution. Pins the installed Mosaik version.
 
 Usage:
   mosaik init [directory] [options]
 
 Options:
       --name <name>             Package name, default directory basename
+      --mosaik-path <directory> Link a contributor checkout instead of the package version
+      --no-install              Write files without running pnpm install
       --force                   Overwrite existing scaffold files
   -h, --help                    Show this help
 
 Examples:
   mosaik init
   mosaik init ./my-bot --name my-bot
+  mosaik init ./my-bot --mosaik-path /path/to/mosaik
 `;
 
 export function parseInitCliArgs(
@@ -391,6 +579,8 @@ export function parseInitCliArgs(
     strict: true,
     options: {
       name: { type: "string" },
+      "mosaik-path": { type: "string" },
+      "no-install": { type: "boolean", default: false },
       force: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -407,6 +597,10 @@ export function parseInitCliArgs(
       directory,
       name,
       force: parsed.values.force,
+      install: !parsed.values["no-install"],
+      ...(parsed.values["mosaik-path"] === undefined
+        ? {}
+        : { mosaikPath: resolve(workingDirectory, parsed.values["mosaik-path"]) }),
     },
   };
 }

@@ -64,6 +64,8 @@ ${theme.bold("Usage")}
 ${theme.bold("Commands")}
   ${theme.accent("init")}      Create a local TypeScript project
   ${theme.accent("run")}       Compose and run a browser task
+  ${theme.accent("execute")}   Execute a saved automation with new inputs
+  ${theme.accent("automations")} List and inspect saved automations
   ${theme.accent("login")}     Save and verify a browser login
   ${theme.accent("provider")}  Sign in to OpenAI Codex
   ${theme.accent("config")}    Set project defaults

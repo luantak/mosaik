@@ -23,6 +23,8 @@ import type { ReusableActionDiscoveryRequest } from "../types.js";
 import { DshReusableActionDiscoveryAgent } from "./action-agent.js";
 import type { DshReasoning } from "./session.js";
 
+import { automationInputSchema } from "../../library/automation-inputs.js";
+
 import { parseTaskOutcome } from "../outcome.js";
 
 suppressExperimentalTypeStripWarning();
@@ -109,7 +111,12 @@ export async function apply(ctx: Context): Promise<void> {
     task: request.task,
     suppliedInputs: request.inputs,
     registry: store.siteActions,
-    saveAutomation: (automation) => store.saveAutomation(automation),
+    saveAutomation: (automation) =>
+      store.saveAutomation({
+        ...automation,
+        startUrl: request.startUrl,
+        inputs: automationInputSchema(automation.source),
+      }),
     discover: async (need, prerequisiteActions) => {
       const result = await discovery.discoverReusableAction({
         task: request.task,
