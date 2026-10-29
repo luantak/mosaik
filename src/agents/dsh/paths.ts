@@ -17,7 +17,7 @@ export function dshResourcePath(filename: string): string {
     return resolve(resourceDirectory, filename);
   }
   if (runningFromSource && filename.endsWith(".js")) {
-    return resolve(moduleDirectory, "../../../dist/agents/dsh", filename);
+    return resolve(moduleDirectory, filename.replace(/\.js$/, ".ts"));
   }
   return resolve(moduleDirectory, filename);
 }
@@ -26,6 +26,9 @@ export function resolveDshCommand(): DshCommand {
   const packageRoot = dirname(require.resolve("@deepseek-ai/dsh/package.json"));
   return {
     executable: process.execPath,
-    prefixArgs: [resolve(packageRoot, "lib/bin.js")],
+    prefixArgs: [
+      ...(runningFromSource ? ["--import", require.resolve("tsx/esm")] : []),
+      resolve(packageRoot, "lib/bin.js"),
+    ],
   };
 }

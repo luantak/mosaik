@@ -585,15 +585,17 @@ export class DurableJob {
   ): T {
     this.assertOpen();
     this.db.exec("BEGIN IMMEDIATE");
+    let committed = false;
     try {
       if (operation !== undefined) this.assertOwner();
       const result = work();
       if (operation !== undefined) this.boundary?.(operation, "before-commit");
       this.db.exec("COMMIT");
+      committed = true;
       if (operation !== undefined) this.boundary?.(operation, "after-commit");
       return result;
     } catch (error) {
-      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      if (!committed) this.db.exec("ROLLBACK");
       throw error;
     }
   }
@@ -602,8 +604,10 @@ export class DurableJob {
 export function inspectJob(directory: string): JobInspection {
   const root = resolve(directory);
   const db = new DatabaseSync(join(root, "job.sqlite"), { readOnly: true });
+  let transaction = false;
   try {
     db.exec("PRAGMA busy_timeout=5000; BEGIN");
+    transaction = true;
     const read = <T>(key: string): T | undefined => {
       const row = db.prepare("SELECT value FROM meta WHERE key=?").get(key);
       return row ? (JSON.parse(row.value as string) as T) : undefined;
@@ -629,7 +633,7 @@ export function inspectJob(directory: string): JobInspection {
         .map((row) => JSON.parse(row.entry as string) as AcceptedJobRepair),
     };
   } finally {
-    if (db.isTransaction) db.exec("ROLLBACK");
+    if (transaction) db.exec("ROLLBACK");
     db.close();
   }
 }

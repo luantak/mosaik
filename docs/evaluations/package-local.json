@@ -1,0 +1,23 @@
+{
+  "artifact": "mosaik-0.1.0.tgz",
+  "sha256": "a784c979f70682dfe93acf2c813622d6e94a2f231eb153320617b1e917487545",
+  "version": "0.1.0",
+  "status": "passed",
+  "dependencySnapshot": "pnpm-lock.yaml",
+  "installedRecords": 8,
+  "durationMs": 11320,
+  "modelRequests": 0,
+  "node": "24.18.0",
+  "lifecycleScripts": "disabled for isolated test",
+  "providerEvaluation": "not run",
+  "validation": [
+    "offline installation from tarball and copied dependency snapshot",
+    "installed CLI version and automation listing",
+    "installed fixture help",
+    "init creates version-pinned project without source link",
+    "DSH plugins, auth YAML and generated Kernel assets resolve inside installed package",
+    "public TypeScript declarations compile",
+    "generated fixture actions and automation compile with installed public types",
+    "actual installed CLI and worker extract 8 independently verified records"
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "provenance": "Independent local fixture; saved library is hand-authored. Repair uses a deterministic fake agent, not a provider.",
+  "correctness": "passed",
+  "durationMs": 166056,
+  "modelRequests": 0,
+  "inputTokens": 0,
+  "outputTokens": 0,
+  "measurements": [
+    {
+      "scenario": "saved CLI, SIGKILL and process resume",
+      "correctness": "passed",
+      "durationMs": 152237,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 0,
+      "collected": 1200,
+      "completedBeforeKill": 60,
+      "status": "complete",
+      "termination": "requested-count",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/project/jobs/crash-recovery/results.ndjson"
+    },
+    {
+      "scenario": "same saved automation, category=books",
+      "correctness": "passed",
+      "durationMs": 4112,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 0,
+      "collected": 25,
+      "status": "complete",
+      "termination": "requested-count",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/project/jobs/books/results.ndjson"
+    },
+    {
+      "scenario": "same saved automation, category=games",
+      "correctness": "passed",
+      "durationMs": 3872,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 0,
+      "collected": 25,
+      "status": "complete",
+      "termination": "requested-count",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/project/jobs/games/results.ndjson"
+    },
+    {
+      "scenario": "partial unavailable/malformed records; transient recovery",
+      "correctness": "passed",
+      "durationMs": 1353,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 0,
+      "collected": 10,
+      "failedItems": 2,
+      "status": "incomplete",
+      "termination": "source-exhausted",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/partial/jobs/partial/results.ndjson"
+    },
+    {
+      "scenario": "requested count exceeds exhausted source",
+      "correctness": "passed",
+      "durationMs": 1076,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 0,
+      "collected": 12,
+      "failedItems": 0,
+      "status": "incomplete",
+      "termination": "source-exhausted",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/partial/jobs/missing/results.ndjson"
+    },
+    {
+      "scenario": "fake-agent eligible locator repair and old/new regression",
+      "correctness": "passed",
+      "durationMs": 3292,
+      "modelRequests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "repairs": 1,
+      "collected": 12,
+      "failedItems": 0,
+      "status": "complete",
+      "termination": "requested-count",
+      "outputPath": ".mosaik-bench/durable-validation-43feac23/repair/jobs/repair/results.ndjson",
+      "fakeAgentCalls": 1,
+      "regressionChecks": [
+        "old layout: 12 independent records",
+        "new layout: 12 independent records",
+        "5 pre-repair commits were not replayed"
+      ]
+    }
+  ],
+  "environment": {
+    "node": "24.18.0",
+    "playwright": "1.62.1",
+    "platform": "Linux",
+    "implementationCommit": "af1e938",
+    "testWorkers": 1
+  },
+  "providerEvaluation": "Not run: requires explicit configured-provider opt-in"
+}

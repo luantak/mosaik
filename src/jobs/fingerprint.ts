@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import type { SiteActionDefinition } from "../capabilities/types.js";
 
@@ -47,25 +47,40 @@ export async function runtimeFingerprint(): Promise<string> {
     versions[name] = JSON.parse(
       await readFile(require.resolve(`${name}/package.json`), "utf8"),
     ).version;
-  for (const path of [
-    "../automations/sandbox",
-    "../automations/run",
-    "../automations/host",
-    "../automations/acceptance",
-    "../runtime/execute",
-    "./store",
-    "./prepare",
-    "./runtime",
-    "./worker",
-  ]) {
-    let contents: string;
-    try {
-      contents = await readFile(new URL(`${path}.js`, import.meta.url), "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      contents = await readFile(new URL(`${path}.ts`, import.meta.url), "utf8");
+  const manifest = JSON.parse(
+    await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+  );
+  versions.package = { version: manifest.version, dependencies: manifest.dependencies };
+  const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
+  // Include runtime transitive modules too: locator/schema/policy edits must not
+  // masquerade as an unchanged executor merely because run.ts itself stayed put.
+  for (const directory of [
+    "automations",
+    "capabilities",
+    "core",
+    "evidence",
+    "jobs",
+    "library",
+    "persist",
+    "repair",
+    "runtime",
+  ])
+    await collect(new URL(`../${directory}/`, import.meta.url), directory);
+  async function collect(directory: URL, prefix: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.name === "test" || entry.name === "__tests__") continue;
+      if (entry.isDirectory())
+        await collect(new URL(`${entry.name}/`, directory), `${prefix}/${entry.name}`);
+      else if (
+        entry.isFile() &&
+        entry.name.endsWith(extension) &&
+        !entry.name.endsWith(".d.ts") &&
+        !entry.name.endsWith(".test.ts")
+      )
+        versions[`${prefix}/${entry.name}`] = fingerprint(
+          await readFile(new URL(entry.name, directory), "utf8"),
+        );
     }
-    versions[path] = fingerprint(contents);
   }
   return fingerprint(versions);
 }

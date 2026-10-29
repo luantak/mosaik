@@ -5,12 +5,16 @@
   "description": "Browser automation built from small, reusable pieces.",
   "license": "MIT",
   "bin": {
-    "mosaik": "./dist/cli.js"
+    "mosaik": "./dist/cli.js",
+    "mosaik-demo": "./dist/fixtures/catalogue-demo.js",
+    "mosaik-fixture": "./dist/fixtures/catalogue-cli.js"
   },
   "files": [
     "dist",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "!src/**/*.test.ts",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -47,7 +51,10 @@
     "package:check": "node scripts/check-package.mjs",
     "auth:fixture": "tsx src/auth/multistep-fixture-cli.ts",
     "test": "node scripts/with-kernel-assets.mjs vitest run",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "demo:fixture": "tsx src/fixtures/catalogue-cli.ts",
+    "demo:durable": "tsx src/fixtures/catalogue-demo.ts",
+    "eval:provider": "tsx src/fixtures/provider-eval.ts"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",

@@ -3,10 +3,28 @@
 Setup, runtime details, authentication, and deployment. For the tldr;
 start with the [README](../README.md).
 
+## Saved execution and durable jobs
+
+`mosaik automations list` lists the library. `mosaik automations inspect <id>
+--site <site>` shows source, typed inputs and dependencies. `mosaik execute <id>
+--site <site> --input key=value` selects the saved program without composition.
+Inputs are checked before browser work. `--job-dir`, `--timeout`,
+`--max-action-calls`, `--output-dir`, and normal browser/authentication options
+control execution. `mosaik resume <job-directory>` retains recorded inputs;
+`mosaik jobs inspect|export <job-directory>` exposes progress and committed output.
+
+See [durable extraction](durable-extraction.md) for `ctx.batch.run`, task acceptance,
+exit codes, process locks, transactional results, fingerprints, accepted repair
+recovery, and measured fixture evaluation. Ordinary saved runs have zero model
+calls; semantic composition review remains optional when explicit deterministic
+checks suffice. Unverified results are incomplete rather than successful tasks.
+
 ## Install the CLI
 
-Mosaik ships a `mosaik` executable. To install the current checkout for
-the active Node installation:
+Mosaik ships `mosaik`, `mosaik-fixture`, and `mosaik-demo` executables. See the
+[installed-package and durable extraction walkthrough](durable-extraction.md) for
+artifact installation and the complete learn/execute/resume workflow. To prepare
+a contributor checkout for linking:
 
 ```sh
 pnpm install
@@ -40,8 +58,10 @@ session ID. In a pipe or other non-interactive shell, the same command prints
 ordinary help instead.
 
 The executable can run from any directory. Start a project with
-`mosaik init`, which creates a pnpm TypeScript package linked to this
-Mosaik checkout so `mosaik/actions` and `mosaik/automations` resolve.
+`mosaik init`, which creates a pnpm TypeScript package pinned to the installed
+Mosaik version so `mosaik/actions` and `mosaik/automations` resolve. Use
+`--mosaik-path /path/to/checkout` for explicit contributor linking, or
+`--no-install` followed by `pnpm add /path/to/mosaik.tgz` for an unpublished artifact.
 It reads `.env` and stores learned action metadata, authentication records,
 browser profiles, and run data under `.mosaik` in the current directory.
 Editable TypeScript sources live in the project itself:

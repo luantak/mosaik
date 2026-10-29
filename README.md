@@ -32,88 +32,55 @@ We're building it for tasks like these:
 
 ## Try it
 
-Mosaik supports OpenRouter, OpenCode Go, and Codex sign-in. You'll need
-Node 22.18 or newer, pnpm, and credentials for the provider you choose.
+Mosaik requires Node 22.18 or newer. Provider credentials are needed to learn or
+compose automations; executing an existing automation with deterministic checks
+needs no provider credentials or model calls.
 
-Clone this repo and install the CLI:
-
-```sh
-git clone https://github.com/luantak/mosaik.git
-cd mosaik
-pnpm install
-pnpm run build
-pnpm link --global "$PWD"
-mosaik setup
-mosaik doctor
-```
-
-`setup` installs Chromium and fetches Camoufox. `doctor` checks the installation
-and tells you what needs fixing, including missing provider credentials.
-
-Create a directory for your automations. `mosaik init` makes a TypeScript project
-linked to your Mosaik checkout:
+Install a prepared package artifact (publishing a release is separate):
 
 ```sh
-mkdir my-automations
+npm install --global /absolute/path/to/mosaik-0.1.0.tgz
+mosaik init my-automations --no-install
 cd my-automations
-mosaik init
-export OPENROUTER_API_KEY=your-key
-# Or use OpenCode Go: export OPENCODE_API_KEY=your-key
-# Or sign in to Codex: mosaik provider login
-mosaik
+pnpm add /absolute/path/to/mosaik-0.1.0.tgz
+mosaik setup
 ```
 
-OpenRouter uses `OPENROUTER_API_KEY`; OpenCode Go uses `OPENCODE_API_KEY`.
-You can put either key in the automation project's `.env` file instead of
-exporting it. Codex stores its login in `~/.dsh` after `mosaik provider login`.
+For a published version, `mosaik init` installs the same version from the registry.
+Contributors can run `pnpm install --frozen-lockfile`, `pnpm run check`, and
+`pnpm exec tsx src/cli.ts` from the checkout; `init --mosaik-path /path/to/mosaik`
+retains explicit contributor linking.
 
-The model picker includes:
-
-| Provider    | Model                        | Model ID                             |
-| ----------- | ---------------------------- | ------------------------------------ |
-| OpenRouter  | GPT-5.6 Luna Nitro (default) | `openai/gpt-5.6-luna:nitro`          |
-| OpenRouter  | DeepSeek V4.1 Flash Nitro    | `deepseek/deepseek-v4.1-flash:nitro` |
-| OpenCode Go | GPT-5.6 Luna                 | `opencode-go/gpt-5.6-luna`           |
-| OpenCode Go | DeepSeek V4.1 Flash          | `opencode-go/deepseek-v4.1-flash`    |
-| Codex       | GPT-5.6 Luna                 | `openai-codex/gpt-5.6-luna`          |
-| Codex       | GPT-5.6 Terra                | `openai-codex/gpt-5.6-terra`         |
-
-Type `/model` at the initial URL prompt or during a session, then use ↑/↓ and
-Enter to select. Choose a model for the provider you configured; the selection
-is saved for this project. You can also start with an explicit model:
+Follow the [complete extraction walkthrough](docs/durable-extraction.md) to learn
+an extraction, inspect it, change inputs, interrupt a large run, resume it and
+verify every result. The local fixture has 1,200 independently defined records,
+filters, overlapping pages, and controlled failures. Run the installed
+`mosaik-demo --output ./demo-results` (or `pnpm run demo:durable` in the checkout)
+for a provider-free demonstration with a real process kill and restart.
+Its seeded automation is hand-authored; its simulated repair is labeled as a fake
+agent. Opt-in provider evaluations are separate.
 
 ```sh
-mosaik --model opencode-go/deepseek-v4.1-flash
-# Or, after Codex sign-in:
-mosaik --model terra
+mosaik automations list
+mosaik automations inspect catalogue --site 127.0.0.1:4318
+mosaik execute catalogue --site 127.0.0.1:4318 \
+  --input category=books --input requestedCount=100 --job-dir ./jobs/books \
+  --browser local --headless --timeout 180000 --max-action-calls 1000
+# After interruption:
+mosaik jobs inspect ./jobs/books
+mosaik resume ./jobs/books --browser local --headless
+mosaik jobs export ./jobs/books
 ```
 
-`luna` and `terra` are aliases for the Codex models. `mosaik run --model <id>`
-also selects a model for a task.
+Commands distinguish complete, incomplete, failed and interrupted tasks. A
+successful execution or empty array does not establish completion. Durable
+read-only jobs commit records and completion markers together; browser state is
+restored by navigation at explicit item/page boundaries. See the walkthrough for
+storage, retry, safety, acceptance and repair guarantees and limits.
 
-The interactive CLI will ask for a URL. Enter:
-
-```text
-https://books.toscrape.com/
-```
-
-Once the browser opens, give it this task:
-
-```text
-download the first 100 book covers
-detail page separately.
-```
-
-Downloaded covers go into `.mosaik/runs/<run-id>/output/`. The actions and automation
-Mosaik learns stay in your project for reuse.
-
-Keep sending tasks in the same session. `/login` starts the login flow on the
-current page, `/new` starts a fresh run, and `/help` lists the commands. Ctrl+C
-cancels the current prompt without closing the browser.
-
-For a repeatable, measured first-run/second-run example, see the
-[book catalogue demo](examples/books-catalogue/README.md). It runs on a public
-test site, checks the returned records, and shows the saved actions and automation.
+For provider configuration, interactive use, authentication and browser options,
+see the [reference](docs/reference.md). The earlier [book catalogue demo](examples/books-catalogue/README.md)
+remains a separate public-site example, not the durability evaluation.
 
 ## What you get to keep
 
